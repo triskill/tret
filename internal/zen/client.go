@@ -145,6 +145,12 @@ func (c *Client) ListJobs(processInstanceKey int64) ([]Job, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("list jobs failed: %s: %s", resp.Status, string(b))
 	}
+	var wrap struct {
+		Items []Job `json:"items"`
+	}
+	if err := json.Unmarshal(b, &wrap); err == nil {
+		return wrap.Items, nil
+	}
 	var jobs []Job
 	if err := json.Unmarshal(b, &jobs); err != nil {
 		return nil, fmt.Errorf("parse jobs: %w", err)
@@ -167,6 +173,12 @@ func (c *Client) ListIncidents(processInstanceKey int64) ([]Incident, error) {
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("list incidents failed: %s: %s", resp.Status, string(b))
+	}
+	var wrap struct {
+		Items []Incident `json:"items"`
+	}
+	if err := json.Unmarshal(b, &wrap); err == nil {
+		return wrap.Items, nil
 	}
 	var incs []Incident
 	if err := json.Unmarshal(b, &incs); err != nil {
