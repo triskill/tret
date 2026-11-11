@@ -6,13 +6,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/pbinitiative/zenbpm-go/internal/brain"
-	"github.com/pbinitiative/zenbpm-go/internal/config"
-	"github.com/pbinitiative/zenbpm-go/internal/contextstore"
-	"github.com/pbinitiative/zenbpm-go/internal/executor"
-	"github.com/pbinitiative/zenbpm-go/internal/server"
-	"github.com/pbinitiative/zenbpm-go/internal/zen"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
+	tret "github.com/triskill/tret"
+	"github.com/triskill/tret/internal/brain"
+	"github.com/triskill/tret/internal/config"
+	"github.com/triskill/tret/internal/contextstore"
+	"github.com/triskill/tret/internal/executor"
+	"github.com/triskill/tret/internal/server"
+	"github.com/triskill/tret/internal/zen"
 )
 
 func main() {
@@ -24,9 +25,9 @@ func main() {
 	}
 	var llm brain.LLMProvider
 	if cfg.APIKey != "" {
-		llm = brain.NewOpenAICompat("https://api.openai.com", cfg.Model, cfg.APIKey)
+		llm = brain.NewOpenAICompat(cfg.APIBase, cfg.Model, cfg.APIKey)
 	} else {
-		llm = brain.NewOllamaLLM("http://localhost:11434", cfg.Model)
+		llm = brain.NewOllamaLLM(cfg.OllamaBase, cfg.Model)
 	}
 	if os.Getenv("MOCK_LLM") == "1" {
 		llm = &brain.FinishLLM{}
@@ -34,10 +35,10 @@ func main() {
 	ctxStore := contextstore.New(cfg.StateDir)
 	srv := server.New(llm, runner, ctxStore)
 
-	// deploy
-	bpmn, _ := os.ReadFile("bpmn/agent_loop.bpmn")
+	// Deploy the embedded process definition (idempotent: identical
+	// content returns the existing processDefinitionKey).
 	zc := zen.NewClient(cfg.EngineREST)
-	if _, _, err := zc.Deploy(bpmn); err != nil {
+	if _, _, err := zc.Deploy(tret.AgentLoopBPMN); err != nil {
 		fmt.Printf("deploy warning: %v\n", err)
 	}
 

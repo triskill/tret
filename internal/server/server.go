@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pbinitiative/zenbpm-go/internal/brain"
-	"github.com/pbinitiative/zenbpm-go/internal/contextstore"
-	"github.com/pbinitiative/zenbpm-go/internal/executor"
-	"github.com/pbinitiative/zenbpm-go/internal/zen"
+	"github.com/triskill/tret/internal/brain"
+	"github.com/triskill/tret/internal/contextstore"
+	"github.com/triskill/tret/internal/executor"
+	"github.com/triskill/tret/internal/zen"
 )
 
 type Server struct {

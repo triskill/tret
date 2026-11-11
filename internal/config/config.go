@@ -18,6 +18,8 @@ type Config struct {
 	Workspace     string `json:"workspace" yaml:"workspace"`
 	Model         string `json:"model" yaml:"model"`
 	APIKey        string `json:"api_key" yaml:"api_key"`
+	APIBase       string `json:"api_base" yaml:"api_base"`
+	OllamaBase    string `json:"ollama_base" yaml:"ollama_base"`
 	MaxToolCalls  int    `json:"max_tool_calls" yaml:"max_tool_calls"`
 	MaxModelTurns int    `json:"max_model_turns" yaml:"max_model_turns"`
 	WallClockSec  int    `json:"wall_clock_sec" yaml:"wall_clock_sec"`
@@ -30,6 +32,8 @@ func defaults() *Config {
 		StateDir:      "./data",
 		Workspace:     ".",
 		Model:         "gpt-4o-mini",
+		APIBase:       "https://api.openai.com",
+		OllamaBase:    "http://localhost:11434",
 		MaxToolCalls:  24,
 		MaxModelTurns: 12,
 		WallClockSec:  900,
@@ -78,6 +82,8 @@ func FromFlags() *Config {
 	fs.StringVar(&cfg.Workspace, "workspace", cfg.Workspace, "workspace dir")
 	fs.StringVar(&cfg.Model, "model", cfg.Model, "model")
 	fs.StringVar(&cfg.APIKey, "api-key", cfg.APIKey, "api key")
+	fs.StringVar(&cfg.APIBase, "api-base", cfg.APIBase, "OpenAI-compatible API base URL")
+	fs.StringVar(&cfg.OllamaBase, "ollama-base", cfg.OllamaBase, "Ollama API base URL")
 	fs.IntVar(&cfg.MaxToolCalls, "max-tool-calls", cfg.MaxToolCalls, "max tool calls")
 	fs.IntVar(&cfg.MaxModelTurns, "max-model-turns", cfg.MaxModelTurns, "max model turns")
 	fs.IntVar(&cfg.WallClockSec, "wall-clock", cfg.WallClockSec, "wall clock sec")

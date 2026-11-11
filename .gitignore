@@ -1,1 +1,12 @@
+# runtime state (context store, engine volume)
 data/
+state/
+session.json
+
+# local config with real credentials
+config.yaml
+config.local.yaml
+
+# built binaries
+/server
+/agent

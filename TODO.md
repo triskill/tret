@@ -1,4 +1,4 @@
-# zenbpm-go — architecture, plan & progress tracker
+# tret — architecture, plan & progress tracker
 
 Updated: 2026-07-15. Tick boxes as work lands. Every **D-number** is an architecture decision that
 was discussed and agreed; changing one means editing this file first, then the code.
@@ -68,22 +68,22 @@ Engine at `~/prg/zenbpm` == tag `v1.9.0`; docs at `~/prg/zenbpm/docs`.
 
 - [x] `go build ./... && go vet ./...` fail: `cmd/orchestrator/main.go:11:6: main redeclared` (vs `main_dispatch.go`)
 - [x] `cmd/orchestrator/` is superseded by `cmd/server` (D3) — removed
-- [x] `go.mod` module path settled to `github.com/pbinitiative/zenbpm-go`
+- [x] `go.mod` module path settled to `github.com/triskill/tret`; engine dep pinned to `github.com/pbinitiative/zenbpm v1.9.0` (no `replace`)
 - [ ] `bpmn/agent_loop.bpmn` has **no `zenbpm:taskDefinition`/ioMapping and no `bpmndi` block** ⇒ jobs get no type and zenbpm-ui shows nothing (D10)
 - [ ] `internal/api/client.go` `FetchInstruction` returns a hardcoded instruction — replace with real engine calls
 - [x] `internal/orchestrator/deployer.go` POSTs BPMN bytes via zen client and returns key
 - [x] `internal/executor/runner.go` ported to bash -lc process group runner (D6)
 - [ ] `internal/job_workers/dispatcher.go` mixes routing with `json.Unmarshal` of raw text, and `internal/brain/llm.go` parses decisions by substring → structured tool calls (P4)
 - [ ] `internal/brain/*` only knows Ollama + `MockLLM` → OPEN-4
-- [ ] repo-root `session.json` is stale REPL chat data → stop committing; state belongs to the server (D5)
+- [x] repo-root `session.json` was stale REPL chat data → untracked + gitignored; state belongs to the server (D5)
 ## 4. Work packages
 
 ### P0 — honest skeleton (nothing pretending)
 - [x] `cmd/server`, `cmd/agent` each own `main`; shared code under `internal/`
 - [x] `internal/config`: engine REST URL, engine gRPC URL, state dir, workspace dir, model+key, budgets — flags
-- [ ] `compose.yaml`: engine + UI, **pinned by image digest**, ports 8080 / 9090 / 8081, volume for state, engine config with `jobManager` overrides and single partition
+- [ ] `compose.yaml`: engine + UI, **pinned by image digest** ✅, ports 8080 / 9090 / 8081 ✅, volume for state ✅, engine config with `jobManager` overrides and single partition (pending)
 - [ ] `Makefile`: `up`, `down`, `build`, `test`, `run-agent`, `deploy`
-- [ ] delete/docs: README explaining the two-app split + status
+- [x] README explaining the two-app split + status
 
 ### P1 — engine adapter (`internal/zen`)
 - [ ] deploy BPMN bytes → parse `processDefinitionKey`, treat 200/201 both as success

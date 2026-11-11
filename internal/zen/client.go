@@ -43,6 +43,45 @@ func (c *Client) Deploy(bpmn []byte) (int64, bool, error) {
 	return r.ProcessDefinitionKey, resp.StatusCode == http.StatusCreated, nil
 }
 
+type ProcessDefinition struct {
+	Key           int64  `json:"key"`
+	Version       int    `json:"version"`
+	BpmnProcessID string `json:"bpmnProcessId"`
+}
+
+type processDefinitionsPage struct {
+	Items []ProcessDefinition `json:"items"`
+}
+
+// GetLatestProcessDefinition returns the newest deployed version of the
+// process with the given BPMN process id, or an error if none is deployed.
+func (c *Client) GetLatestProcessDefinition(bpmnProcessID string) (*ProcessDefinition, error) {
+	req, err := http.NewRequest(http.MethodGet,
+		c.BaseURL+"/v1/process-definitions?bpmnProcessId="+bpmnProcessID+"&onlyLatest=true", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list process definitions failed: %s: %s", resp.Status, string(body))
+	}
+	var page processDefinitionsPage
+	if err := json.Unmarshal(body, &page); err != nil {
+		return nil, fmt.Errorf("parse process definitions response: %w", err)
+	}
+	for i := range page.Items {
+		if page.Items[i].BpmnProcessID == bpmnProcessID {
+			return &page.Items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("process definition %q not deployed", bpmnProcessID)
+}
+
 type StartInstanceResult struct {
 	Key                  int64  `json:"key"`
 	ProcessDefinitionKey int64  `json:"processDefinitionKey"`

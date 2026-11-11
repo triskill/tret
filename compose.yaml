@@ -1,5 +1,6 @@
 services:
   engine:
+    # zenbpm v1.9.0, linux/amd64+arm64 index digest
     image: ghcr.io/pbinitiative/zenbpm@sha256:295ca2a270b747615aff5f7fee193224df418f8a7aa55e606cd47ee152c23157
     ports:
       - "8080:8080"
@@ -11,7 +12,8 @@ services:
         aliases:
           - zenbpm
   ui:
-    image: ghcr.io/pbinitiative/zenbpm-ui:v1.9.0
+    # zenbpm-ui v1.9.0, linux/amd64+arm64 index digest
+    image: ghcr.io/pbinitiative/zenbpm-ui@sha256:d05ac42e0023719846bd7315bd04c4d020aa94d80d9e6559b731bb4bdbb7494c
     ports:
       - "8081:80"
     depends_on:

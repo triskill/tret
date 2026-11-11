@@ -1,7 +1,8 @@
-SERVER ?= http://localhost:8080
+ENGINE ?= http://localhost:8080
 CONFIG ?= config.example.yaml
 GOAL ?=
-.PHONY: up down build test run-agent run-server deploy e2e
+ARGS ?=
+.PHONY: up down build test run run-agent run-server deploy e2e
 
 up:
 	docker compose up -d
@@ -23,15 +24,15 @@ run-server:
 	go run ./cmd/server $(if $(CONFIG),-config $(CONFIG),)
 
 run-agent:
-	go run ./cmd/agent -goal "$(GOAL)" -server "$(SERVER)"
+	go run ./cmd/agent -goal "$(GOAL)" -engine "$(ENGINE)" $(ARGS)
 
 deploy:
 	go run ./cmd/server
 
-e2e: up build
-	@MOCK_LLM=1 go run ./cmd/server & SERVER_PID=$$!; \
-	sleep 4; \
-	printf '/exit\n' | go run ./cmd/agent -goal "echo hi"; \
-	status=$$?; \
-	kill $$SERVER_PID 2>/dev/null; \
-	exit $$status
+e2e: up
+	@BIN=$$(mktemp -d); \
+	trap 'kill $${SERVER_PID:-0} 2>/dev/null; rm -rf $$BIN' EXIT; \
+	go build -o $$BIN/server ./cmd/server && go build -o $$BIN/agent ./cmd/agent || exit 1; \
+	MOCK_LLM=1 $$BIN/server & SERVER_PID=$$!; \
+	sleep 2; \
+	printf '/exit\n' | $$BIN/agent -goal "echo hi"

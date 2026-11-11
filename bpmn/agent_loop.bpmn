@@ -7,7 +7,7 @@
                   xmlns:zenbpm="http://zenbpm.pbinitiative.org/1.0"
                   id="Definitions_agent_loop"
                   targetNamespace="http://bpmn.io/schema/bpmn"
-                  exporter="zenbpm-go"
+                  exporter="tret"
                   exporterVersion="1.0">
   <bpmn:process id="agent_loop" name="Agent Chat Loop" isExecutable="true">
     <bpmn:startEvent id="StartEvent_1" name="Start">
