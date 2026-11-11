@@ -37,3 +37,9 @@ func ParseDecision(raw string) (string, string, string) {
 	}
 	return "message", "", raw
 }
+
+type FinishLLM struct{}
+
+func (f *FinishLLM) Complete(messages []string) (string, error) {
+	return `{"route":"finish","message":"done","assistant_text":"finished"}`, nil
+}

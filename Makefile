@@ -22,7 +22,7 @@ deploy:
 	go run ./cmd/server
 
 e2e: up build
-	@go run ./cmd/server & SERVER_PID=$$!; \
+	@MOCK_LLM=1 go run ./cmd/server & SERVER_PID=$$!; \
 	sleep 4; \
 	printf 'hello\nsubmit\n' | go run ./cmd/agent -goal "echo hi"; \
 	status=$$?; \

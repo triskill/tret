@@ -39,7 +39,7 @@ func main() {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		inst, _ := zc.GetInstanceByBusinessKey("run-1")
+		inst, _ := zc.GetInstance(instanceKey)
 		if inst != nil && (inst.State == "completed" || inst.State == "terminated" || inst.State == "failed") {
 			fmt.Printf("instance state: %s\n", inst.State)
 			break

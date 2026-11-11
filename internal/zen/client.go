@@ -91,22 +91,47 @@ func (c *Client) GetInstanceByBusinessKey(businessKey string) (*Instance, error)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("get instance failed: %s: %s", resp.Status, string(b))
 	}
-	var inst Instance
-	if err := json.Unmarshal(b, &inst); err != nil {
-		// maybe array
-		var arr []Instance
-		if err2 := json.Unmarshal(b, &arr); err2 == nil && len(arr) > 0 {
-			return &arr[0], nil
-		}
-		return nil, fmt.Errorf("parse instance: %w", err)
+	// engine returns {partitions:[{items:[...] }]}
+	var wrap struct {
+		Partitions []struct {
+			Items []Instance `json:"items"`
+		} `json:"partitions"`
 	}
-	return &inst, nil
+	if err := json.Unmarshal(b, &wrap); err == nil && len(wrap.Partitions) > 0 && len(wrap.Partitions[0].Items) > 0 {
+		return &wrap.Partitions[0].Items[0], nil
+	}
+	var inst Instance
+	if err := json.Unmarshal(b, &inst); err == nil && inst.Key != 0 {
+		return &inst, nil
+	}
+	var arr []Instance
+	if err := json.Unmarshal(b, &arr); err == nil && len(arr) > 0 {
+		return &arr[0], nil
+	}
+	return nil, fmt.Errorf("parse instance: %s", string(b))
 }
 
 type Job struct {
 	Key   int64  `json:"key"`
 	Type  string `json:"type"`
 	State string `json:"state"`
+}
+
+func (c *Client) GetInstance(key int64) (*Instance, error) {
+	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/process-instances/%d", c.BaseURL, key))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get instance failed: %s: %s", resp.Status, string(b))
+	}
+	var inst Instance
+	if err := json.Unmarshal(b, &inst); err != nil {
+		return nil, err
+	}
+	return &inst, nil
 }
 
 func (c *Client) ListJobs(processInstanceKey int64) ([]Job, error) {

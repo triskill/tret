@@ -26,6 +26,9 @@ func main() {
 	} else {
 		llm = brain.NewOllamaLLM("http://localhost:11434", cfg.Model)
 	}
+	if os.Getenv("MOCK_LLM") == "1" {
+		llm = &brain.FinishLLM{}
+	}
 	srv := server.New(llm, runner)
 
 	// deploy
@@ -42,7 +45,7 @@ func main() {
 	}
 	g := zen.NewGrpcClient(conn)
 	ctx := context.Background()
-	_, err = g.RegisterWorker(ctx, "zenbpm-go-server", func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
+	_, err = g.RegisterWorker(ctx, fmt.Sprintf("zenbpm-go-server-%d", os.Getpid()), func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
 		if job != nil && job.Type != nil && *job.Type == "agent-execute" {
 			return srv.Execute(ctx, job)
 		}
