@@ -23,7 +23,7 @@ run-server:
 	go run ./cmd/server $(if $(CONFIG),-config $(CONFIG),)
 
 run-agent:
-	go run ./cmd/agent -goal "$(GOAL)" -server "$(SERVER)" $(if $(CONFIG),-config $(CONFIG),)
+	go run ./cmd/agent -goal "$(GOAL)" -server "$(SERVER)"
 
 deploy:
 	go run ./cmd/server
