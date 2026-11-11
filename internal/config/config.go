@@ -79,7 +79,6 @@ func FromFlags() *Config {
 	fs.IntVar(&cfg.MaxToolCalls, "max-tool-calls", cfg.MaxToolCalls, "max tool calls")
 	fs.IntVar(&cfg.MaxModelTurns, "max-model-turns", cfg.MaxModelTurns, "max model turns")
 	fs.IntVar(&cfg.WallClockSec, "wall-clock", cfg.WallClockSec, "wall clock sec")
-	fs.StringVar(&cfg.APIKey, "api-key", cfg.APIKey, "api key")
 	fs.Parse(os.Args[1:])
 	return cfg
 }
