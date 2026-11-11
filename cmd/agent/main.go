@@ -19,15 +19,9 @@ func main() {
 	workspace := flag.String("workspace", ".", "workspace dir")
 	serverURL := flag.String("server", "http://localhost:8080", "server url")
 	flag.Parse()
+	_ = goal
 
 	scanner := bufio.NewScanner(os.Stdin)
-	if *goal == "" || *goal == "default goal" {
-		fmt.Print("Enter goal> ")
-		if scanner.Scan() {
-			*goal = strings.TrimSpace(scanner.Text())
-		}
-	}
-
 	bpmn, err := os.ReadFile("bpmn/agent_loop.bpmn")
 	if err != nil {
 		fmt.Println(err)
@@ -54,7 +48,7 @@ func main() {
 		fmt.Printf("attached to instance %d (businessKey=%s)\n", instanceKey, bk)
 	} else {
 		bk = fmt.Sprintf("run-%d", time.Now().UnixNano())
-		instanceKey, err = zc.StartInstance(key, bk, map[string]any{"goal": *goal, "route": ""})
+		instanceKey, err = zc.StartInstance(key, bk, map[string]any{})
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -75,6 +69,8 @@ func main() {
 			if j.State == "active" && j.Type == "agent-reply" {
 				if at, ok := j.InputVariables["assistant_text"].(string); ok && at != "" {
 					fmt.Printf("Assistant: %s\n", at)
+				} else {
+					// no assistant text yet
 				}
 				fmt.Print("You> ")
 				if !scanner.Scan() {

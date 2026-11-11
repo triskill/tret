@@ -11,9 +11,9 @@
                   exporterVersion="1.0">
   <bpmn:process id="agent_loop" name="Agent Chat Loop" isExecutable="true">
     <bpmn:startEvent id="StartEvent_1" name="Start">
-      <bpmn:outgoing>Flow_Start_Decide</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Start_Reply</bpmn:outgoing>
     </bpmn:startEvent>
-    <bpmn:sequenceFlow id="Flow_Start_Decide" sourceRef="StartEvent_1" targetRef="Task_Decide" />
+    <bpmn:sequenceFlow id="Flow_Start_Reply" sourceRef="StartEvent_1" targetRef="Task_Reply" />
 
     <bpmn:serviceTask id="Task_Decide" name="Decide">
       <bpmn:extensionElements>
@@ -26,7 +26,6 @@
           <zenbpm:output source="=context" target="context" />
         </zenbpm:ioMapping>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Start_Decide</bpmn:incoming>
       <bpmn:incoming>Flow_Reply_Decide</bpmn:incoming>
       <bpmn:outgoing>Flow_Decide_Gateway</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -48,6 +47,7 @@
         </zenbpm:ioMapping>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Reply</bpmn:incoming>
+      <bpmn:incoming>Flow_Start_Reply</bpmn:incoming>
       <bpmn:outgoing>Flow_Reply_Decide</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:sequenceFlow id="Flow_Reply_Decide" sourceRef="Task_Reply" targetRef="Task_Decide" />
@@ -83,7 +83,7 @@
       <bpmndi:BPMNShape id="Task_FailReport_di" bpmnElement="Task_FailReport">
         <dc:Bounds x="335" y="220" width="120" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Flow_Start_Decide_di" bpmnElement="Flow_Start_Decide">
+      <bpmndi:BPMNEdge id="Flow_Start_Reply_di" bpmnElement="Flow_Start_Reply">
         <di:waypoint x="136" y="138" />
         <di:waypoint x="180" y="138" />
       </bpmndi:BPMNEdge>
