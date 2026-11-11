@@ -71,7 +71,7 @@ Engine at `~/prg/zenbpm` == tag `v1.9.0`; docs at `~/prg/zenbpm/docs`.
 - [x] `go.mod` module path settled to `github.com/pbinitiative/zenbpm-go`
 - [ ] `bpmn/agent_loop.bpmn` has **no `zenbpm:taskDefinition`/ioMapping and no `bpmndi` block** ⇒ jobs get no type and zenbpm-ui shows nothing (D10)
 - [ ] `internal/api/client.go` `FetchInstruction` returns a hardcoded instruction — replace with real engine calls
-- [ ] `internal/orchestrator/deployer.go` only prints "Deployed ..." — must POST bytes and read back the key
+- [x] `internal/orchestrator/deployer.go` POSTs BPMN bytes via zen client and returns key
 - [x] `internal/executor/runner.go` ported to bash -lc process group runner (D6)
 - [ ] `internal/job_workers/dispatcher.go` mixes routing with `json.Unmarshal` of raw text, and `internal/brain/llm.go` parses decisions by substring → structured tool calls (P4)
 - [ ] `internal/brain/*` only knows Ollama + `MockLLM` → OPEN-4

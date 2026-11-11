@@ -1,20 +1,23 @@
 package orchestrator
 
 import (
-	"fmt"
+	"context"
+
+	"github.com/pbinitiative/zenbpm-go/internal/zen"
 )
 
 type Deployer struct {
-	BaseURL string
+	Client *zen.Client
 }
 
 func NewDeployer(baseURL string) *Deployer {
-	return &Deployer{BaseURL: baseURL}
+	return &Deployer{Client: zen.NewClient(baseURL)}
 }
 
-func (d *Deployer) Deploy(bpmnContent []byte, processName string) error {
-	fmt.Printf("[Deployer] Deploying process: %s...\\n", processName)
-	fmt.Printf("[Deployer] API POST request sent to %s/api/bpmn/deploy with %d bytes\\n", d.BaseURL, len(bpmnContent))
-	fmt.Println("[Deployer] Success: Process deployed.")
-	return nil
+func (d *Deployer) Deploy(ctx context.Context, bpmnContent []byte, processName string) (string, error) {
+	key, _, err := d.Client.Deploy(bpmnContent)
+	if err != nil {
+		return "", err
+	}
+	return key, nil
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -24,7 +25,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = deployer.Deploy(content, "AgentDecisionLoop")
+	key, err := deployer.Deploy(context.Background(), content, "AgentDecisionLoop")
+	_ = key
 	if err != nil {
 		fmt.Printf("[Startup] Failed to deploy BPMN process: %v\\n", err)
 	} else {
