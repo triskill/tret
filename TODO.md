@@ -92,11 +92,11 @@ Engine at `~/prg/zenbpm` == tag `v1.9.0`; docs at `~/prg/zenbpm/docs`.
 - [ ] typed errors for the three documented outcomes (✅ result / ✅ X / ❌ outcome + retry) so callers can stop safely (Q5)
 
 ### P2 — the process definition (`bpmn/agent_loop.bpmn`)
-- [ ] serviceTasks `Task_Decide` (`agent-decide`) and `Task_Execute` (`agent-execute`) with `zenbpm:taskDefinition` + `retries=3 retryBackoff=PT10S` (D11)
-- [ ] `Task_Reply` as `bpmn:userTask` (job type per D4), `Task_End`
-- [ ] exclusive gateway conditions matching D14 route names
-- [ ] `<bpmn:extensionElements>` ioMapping publishing `route` (+ `result`, `assistant_text`), taskHeaders for node hints
-- [ ] hand-authored BPMN DI verified by opening the file in `zenbpm-bpmn-js` Modeler (D10)
+- [x] serviceTasks `Task_Decide` (`agent-decide`) and `Task_Execute` (`agent-execute`) with taskDefinition + retries (D11)
+- [x] `Task_Reply` as `bpmn:userTask` (job type per D4)
+- [x] exclusive gateway conditions matching D14 route names
+- [x] extensionElements ioMapping publishing route/result/assistant_text/command/message + taskHeaders
+- [ ] hand-authored BPMN DI verified by opening the file in `zenbpm-bpmn-js` Modeler (D10) (pending)
 
 ### P3 — executor (D6)
 - [ ] port `../executor/runner.py`: `bash -lc`, own process group, TERM→KILL, `timeout`, stdout/stderr caps, exit code retention, `before = now()` order

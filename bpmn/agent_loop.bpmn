@@ -1,20 +1,157 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" 
-                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" 
-                  targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="AgentLoopProcess" isExecutable="true" name="Agent Decision Loop">
-    <bpmn:startEvent id="StartEvent_1" name="New Task Received" />
-    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_Think" />
-    <bpmn:serviceTask id="Task_Think" name="LLM Think Step" />
-    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_Think" targetRef="Gateway_Decision" />
-    <bpmn:exclusiveGateway id="Gateway_Decision" name="Route Decision" />
-    <bpmn:sequenceFlow id="Flow_Tool" name="tool" sourceRef="Gateway_Decision" targetRef="Task_Shell" />
-    <bpmn:serviceTask id="Task_Shell" name="Execute Shell Command" />
-    <bpmn:sequenceFlow id="Flow_Return_Shell" sourceRef="Task_Shell" targetRef="StartEvent_1" />
-    <bpmn:sequenceFlow id="Flow_User" name="message" sourceRef="Gateway_Decision" targetRef="Task_User" />
-    <bpmn:userTask id="Task_User" name="Human Interaction (REPL)" />
-    <bpmn:sequenceFlow id="Flow_Return_User" sourceRef="Task_User" targetRef="StartEvent_1" />
-    <bpmn:sequenceFlow id="Flow_Finish" name="finish" sourceRef="Gateway_Decision" targetRef="EndEvent_1" />
-    <bpmn:endEvent id="EndEvent_1" name="Task Completed" />
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xmlns:zenbpm="http://zenbpm.pbinitiative.org/1.0"
+                  id="Definitions_agent_loop"
+                  targetNamespace="http://bpmn.io/schema/bpmn"
+                  exporter="zenbpm-go"
+                  exporterVersion="1.0">
+  <bpmn:process id="agent_loop" name="Agent Decision Loop" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1" name="Start">
+      <bpmn:outgoing>Flow_Start_Decide</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_Start_Decide" sourceRef="StartEvent_1" targetRef="Task_Decide" />
+
+    <bpmn:serviceTask id="Task_Decide" name="Decide">
+      <bpmn:extensionElements>
+        <zenbpm:taskDefinition type="agent-decide" retries="3" retryBackoff="PT10S" />
+        <zenbpm:taskHeaders>
+          <zenbpm:header key="purpose" value="decide" />
+        </zenbpm:taskHeaders>
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=route" target="route" />
+          <zenbpm:output source="=command" target="command" />
+          <zenbpm:output source="=message" target="message" />
+          <zenbpm:output source="=assistant_text" target="assistant_text" />
+        </zenbpm:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Start_Decide</bpmn:incoming>
+      <bpmn:incoming>Flow_Execute_Decide</bpmn:incoming>
+      <bpmn:incoming>Flow_Reply_Decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_Decide_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_Decide_Gateway" sourceRef="Task_Decide" targetRef="Gateway_Route" />
+
+    <bpmn:exclusiveGateway id="Gateway_Route" name="Route" default="Flow_Fail">
+      <bpmn:incoming>Flow_Decide_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_Tool</bpmn:outgoing>
+      <bpmn:outgoing>Flow_User</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Finish</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Fail</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:sequenceFlow id="Flow_Tool" name="tool" sourceRef="Gateway_Route" targetRef="Task_Execute">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "tool"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:serviceTask id="Task_Execute" name="Execute">
+      <bpmn:extensionElements>
+        <zenbpm:taskDefinition type="agent-execute" retries="3" retryBackoff="PT10S" />
+        <zenbpm:taskHeaders>
+          <zenbpm:header key="purpose" value="execute" />
+        </zenbpm:taskHeaders>
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=result" target="result" />
+          <zenbpm:output source="=route" target="route" />
+        </zenbpm:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Tool</bpmn:incoming>
+      <bpmn:outgoing>Flow_Execute_Decide</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_Execute_Decide" sourceRef="Task_Execute" targetRef="Task_Decide" />
+
+    <bpmn:sequenceFlow id="Flow_User" name="message" sourceRef="Gateway_Route" targetRef="Task_Reply">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "message"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:userTask id="Task_Reply" name="Reply">
+      <bpmn:extensionElements>
+        <zenbpm:taskDefinition type="agent-reply" retries="3" retryBackoff="PT10S" />
+        <zenbpm:taskHeaders>
+          <zenbpm:header key="purpose" value="reply" />
+        </zenbpm:taskHeaders>
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=route" target="route" />
+        </zenbpm:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_User</bpmn:incoming>
+      <bpmn:outgoing>Flow_Reply_Decide</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_Reply_Decide" sourceRef="Task_Reply" targetRef="Task_Decide" />
+
+    <bpmn:sequenceFlow id="Flow_Finish" name="finish" sourceRef="Gateway_Route" targetRef="End_Success">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "finish"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:endEvent id="End_Success" name="Success" />
+
+    <bpmn:sequenceFlow id="Flow_Fail" name="fail" sourceRef="Gateway_Route" targetRef="End_Failure" />
+    <bpmn:endEvent id="End_Failure" name="Failure" />
   </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="agent_loop">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="120" y="120" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Decide_di" bpmnElement="Task_Decide">
+        <dc:Bounds x="220" y="98" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Route_di" bpmnElement="Gateway_Route" isMarkerVisible="true">
+        <dc:Bounds x="400" y="113" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Execute_di" bpmnElement="Task_Execute">
+        <dc:Bounds x="520" y="20" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Reply_di" bpmnElement="Task_Reply">
+        <dc:Bounds x="520" y="200" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Success_di" bpmnElement="End_Success">
+        <dc:Bounds x="520" y="120" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Failure_di" bpmnElement="End_Failure">
+        <dc:Bounds x="400" y="240" width="36" height="36" />
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Flow_Start_Decide_di" bpmnElement="Flow_Start_Decide">
+        <di:waypoint x="156" y="138" />
+        <di:waypoint x="220" y="138" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Decide_Gateway_di" bpmnElement="Flow_Decide_Gateway">
+        <di:waypoint x="340" y="138" />
+        <di:waypoint x="400" y="138" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Tool_di" bpmnElement="Flow_Tool">
+        <di:waypoint x="425" y="113" />
+        <di:waypoint x="425" y="60" />
+        <di:waypoint x="520" y="60" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Execute_Decide_di" bpmnElement="Flow_Execute_Decide">
+        <di:waypoint x="580" y="100" />
+        <di:waypoint x="580" y="60" />
+        <di:waypoint x="280" y="60" />
+        <di:waypoint x="280" y="98" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_User_di" bpmnElement="Flow_User">
+        <di:waypoint x="425" y="163" />
+        <di:waypoint x="425" y="240" />
+        <di:waypoint x="520" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Reply_Decide_di" bpmnElement="Flow_Reply_Decide">
+        <di:waypoint x="580" y="200" />
+        <di:waypoint x="580" y="160" />
+        <di:waypoint x="280" y="160" />
+        <di:waypoint x="280" y="178" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Finish_di" bpmnElement="Flow_Finish">
+        <di:waypoint x="450" y="138" />
+        <di:waypoint x="520" y="138" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Fail_di" bpmnElement="Flow_Fail">
+        <di:waypoint x="400" y="163" />
+        <di:waypoint x="400" y="240" />
+        <di:waypoint x="418" y="240" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
 </bpmn:definitions>
