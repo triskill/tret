@@ -2,7 +2,7 @@ engine_rest: http://localhost:8080
 engine_grpc: localhost:9090
 state_dir: ./state
 workspace: .
-model: qwen3:4b
+model: gemma_worker
 api_key: ""
 max_tool_calls: 24
 max_model_turns: 12

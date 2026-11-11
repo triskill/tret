@@ -1,5 +1,5 @@
 SERVER ?= http://localhost:8080
-CONFIG ?=
+CONFIG ?= config.example.yaml
 GOAL ?=
 .PHONY: up down build test run-agent run-server deploy e2e
 
