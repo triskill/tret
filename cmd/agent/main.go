@@ -15,6 +15,8 @@ import (
 
 func main() {
 	goal := flag.String("goal", "default goal", "goal")
+	continueKey := flag.String("continue", "", "business key of existing run to attach to")
+	workspace := flag.String("workspace", ".", "workspace dir")
 	serverURL := flag.String("server", "http://localhost:8080", "server url")
 	flag.Parse()
 
@@ -30,12 +32,28 @@ func main() {
 		os.Exit(1)
 	}
 	zc := zen.NewClient(*serverURL)
-	instanceKey, err := zc.StartInstance(key, "run-1", map[string]any{"goal": *goal, "route": ""})
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+
+	var instanceKey int64
+	var bk string
+	if *continueKey != "" {
+		bk = *continueKey
+		inst, err := zc.GetInstanceByBusinessKey(bk)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		instanceKey = inst.Key
+		fmt.Printf("attached to instance %d (businessKey=%s)\n", instanceKey, bk)
+	} else {
+		bk = fmt.Sprintf("run-%d", time.Now().UnixNano())
+		instanceKey, err = zc.StartInstance(key, bk, map[string]any{"goal": *goal, "route": ""})
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Printf("started instance %d (businessKey=%s)\n", instanceKey, bk)
 	}
-	fmt.Printf("started instance %d\n", instanceKey)
+	_ = workspace
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {

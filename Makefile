@@ -12,6 +12,10 @@ build:
 test:
 	go test ./...
 
+run: up
+	@echo "Starting engine + server..."
+	@$(MAKE) run-server
+
 run-server:
 	go run ./cmd/server
 
