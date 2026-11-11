@@ -1,15 +1,59 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/pbinitiative/zenbpm-go/internal/brain"
 	"github.com/pbinitiative/zenbpm-go/internal/config"
+	"github.com/pbinitiative/zenbpm-go/internal/executor"
+	"github.com/pbinitiative/zenbpm-go/internal/server"
+	"github.com/pbinitiative/zenbpm-go/internal/zen"
 )
 
 func main() {
 	cfg := config.FromFlags()
-	fmt.Printf("server starting; engine=%s state=%s\n", cfg.EngineREST, cfg.StateDir)
-	// placeholder
-	os.Exit(0)
+	runner, err := executor.NewRunner(cfg.Workspace)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	var llm brain.LLMProvider
+	if cfg.APIKey != "" {
+		llm = brain.NewOpenAICompat("https://api.openai.com", cfg.Model, cfg.APIKey)
+	} else {
+		llm = brain.NewOllamaLLM("http://localhost:11434", cfg.Model)
+	}
+	srv := server.New(llm, runner)
+
+	// deploy
+	bpmn, _ := os.ReadFile("bpmn/agent_loop.bpmn")
+	zc := zen.NewClient(cfg.EngineREST)
+	if _, _, err := zc.Deploy(bpmn); err != nil {
+		fmt.Printf("deploy warning: %v\n", err)
+	}
+
+	conn, err := zen.DialGRPC(cfg.EngineGRPC)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	g := zen.NewGrpcClient(conn)
+	ctx := context.Background()
+	_, err = g.RegisterWorker(ctx, "zenbpm-go-server", func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
+		if job != nil && job.Type != nil && *job.Type == "agent-execute" {
+			return srv.Execute(ctx, job)
+		}
+		return srv.Decide(ctx, job)
+	}, "agent-decide", "agent-execute")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	fmt.Println("server running")
+	for {
+		time.Sleep(time.Hour)
+	}
 }

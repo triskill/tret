@@ -3,6 +3,7 @@ package zen
 import (
 	"context"
 
+	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -23,3 +24,5 @@ func Register(ctx context.Context, g *zenclient.Grpc, clientID string, f zenclie
 	_, err := g.RegisterWorker(ctx, clientID, f, types...)
 	return err
 }
+
+type WaitingJob = proto.WaitingJob
