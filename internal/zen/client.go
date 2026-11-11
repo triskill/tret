@@ -156,3 +156,19 @@ type OutcomeError struct {
 }
 
 func (e *OutcomeError) Error() string { return e.Kind + ": " + e.Message }
+
+func (c *Client) CompleteJob(jobKey int64, variables map[string]any) error {
+	b, _ := json.Marshal(map[string]any{"variables": variables})
+	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/v1/jobs/%d/complete", c.BaseURL, jobKey), bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("complete job failed: %s: %s", resp.Status, string(rb))
+	}
+	return nil
+}
