@@ -148,3 +148,11 @@ func (c *Client) ListIncidents(processInstanceKey int64) ([]Incident, error) {
 	}
 	return incs, nil
 }
+
+// Typed outcomes
+type OutcomeError struct {
+	Kind    string
+	Message string
+}
+
+func (e *OutcomeError) Error() string { return e.Kind + ": " + e.Message }
