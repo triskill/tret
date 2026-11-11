@@ -48,7 +48,7 @@ func main() {
 		fmt.Printf("attached to instance %d (businessKey=%s)\n", instanceKey, bk)
 	} else {
 		bk = fmt.Sprintf("run-%d", time.Now().UnixNano())
-		instanceKey, err = zc.StartInstance(key, bk, map[string]any{})
+		instanceKey, err = zc.StartInstance(key, bk, map[string]any{"business_key": bk})
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)

@@ -1,6 +1,6 @@
 engine_rest: http://localhost:8080
 engine_grpc: localhost:9090
-state_dir: ./state
+state_dir: ./data
 workspace: .
 model: gemma_worker
 api_key: ""

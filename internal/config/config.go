@@ -27,7 +27,7 @@ func defaults() *Config {
 	return &Config{
 		EngineREST:    "http://localhost:8080",
 		EngineGRPC:    "localhost:9090",
-		StateDir:      "./state",
+		StateDir:      "./data",
 		Workspace:     ".",
 		Model:         "gpt-4o-mini",
 		MaxToolCalls:  24,
