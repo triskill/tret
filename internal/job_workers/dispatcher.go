@@ -9,7 +9,7 @@ import (
 
 type JobRequest struct {
 	TaskID  string
-	Payload string 
+	Payload string
 }
 
 type Decision struct {
@@ -18,9 +18,9 @@ type Decision struct {
 }
 
 type Dispatcher struct {
-	Shell   *ShellWorker
-	User    *UserTaskWorker
-	LLM     brain.LLMProvider
+	Shell *ShellWorker
+	User  *UserTaskWorker
+	LLM   brain.LLMProvider
 }
 
 func NewDispatcher(shell *ShellWorker, user *UserTaskWorker, llm brain.LLMProvider) *Dispatcher {

@@ -3,8 +3,8 @@ package zen
 import (
 	"context"
 
-	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
+	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

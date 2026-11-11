@@ -7,17 +7,17 @@ import (
 )
 
 type Instruction struct {
-	TaskID      string `json:"task_id"`
-	Command     string `json:"command"`
-	Context     string `json:"context"`
-	IsToolCall  bool   `json:"is_tool_call"`
+	TaskID     string `json:"task_id"`
+	Command    string `json:"command"`
+	Context    string `json:"context"`
+	IsToolCall bool   `json:"is_tool_call"`
 }
 
 type Report struct {
-	TaskID    string `json:"task_id"`
-	Status    string `json:"status"` 
-	Output    string `json:"output"`
-	Error     string `json:"error,omitempty"`
+	TaskID string `json:"task_id"`
+	Status string `json:"status"`
+	Output string `json:"output"`
+	Error  string `json:"error,omitempty"`
 }
 
 type Client struct {

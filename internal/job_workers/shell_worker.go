@@ -2,9 +2,9 @@ package job_workers
 
 import (
 	"context"
-	"time"
 	"fmt"
 	"github.com/pbinitiative/zenbpm-go/internal/executor"
+	"time"
 )
 
 type ShellWorker struct {

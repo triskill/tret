@@ -3,15 +3,15 @@ package brain
 import (
 	"context"
 	"fmt"
-	"time"
 	"github.com/pbinitiative/zenbpm-go/internal/api"
 	"github.com/pbinitiative/zenbpm-go/internal/executor"
+	"time"
 )
 
 type AgentLoop struct {
-	API      *api.Client
-	Runner   *executor.Runner
-	TaskID   string
+	API    *api.Client
+	Runner *executor.Runner
+	TaskID string
 }
 
 func NewAgentLoop(apiClient *api.Client, runner *executor.Runner, taskID string) *AgentLoop {

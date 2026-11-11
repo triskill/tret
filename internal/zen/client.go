@@ -44,16 +44,16 @@ func (c *Client) Deploy(bpmn []byte) (int64, bool, error) {
 }
 
 type StartInstanceResult struct {
-	Key                 int64  `json:"key"`
+	Key                  int64  `json:"key"`
 	ProcessDefinitionKey int64  `json:"processDefinitionKey"`
-	State               string `json:"state"`
+	State                string `json:"state"`
 }
 
 func (c *Client) StartInstance(processDefinitionKey int64, businessKey string, variables map[string]any) (int64, error) {
 	body := map[string]any{
 		"processDefinitionKey": processDefinitionKey,
 		"businessKey":          businessKey,
-		"variables":           variables,
+		"variables":            variables,
 	}
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, c.BaseURL+"/v1/process-instances", bytes.NewReader(b))
@@ -75,10 +75,10 @@ func (c *Client) StartInstance(processDefinitionKey int64, businessKey string, v
 }
 
 type Instance struct {
-	Key                 int64  `json:"key"`
-	BusinessKey         string `json:"businessKey"`
-	State               string `json:"state"`
-	ProcessDefinitionKey int64 `json:"processDefinitionKey"`
+	Key                  int64  `json:"key"`
+	BusinessKey          string `json:"businessKey"`
+	State                string `json:"state"`
+	ProcessDefinitionKey int64  `json:"processDefinitionKey"`
 }
 
 func (c *Client) GetInstanceByBusinessKey(businessKey string) (*Instance, error) {
@@ -112,10 +112,10 @@ func (c *Client) GetInstanceByBusinessKey(businessKey string) (*Instance, error)
 }
 
 type Job struct {
-	Key             int64          `json:"key"`
-	Type            string         `json:"type"`
-	State           string         `json:"state"`
-	InputVariables  map[string]any `json:"inputVariables"`
+	Key            int64          `json:"key"`
+	Type           string         `json:"type"`
+	State          string         `json:"state"`
+	InputVariables map[string]any `json:"inputVariables"`
 }
 
 func (c *Client) GetInstance(key int64) (*Instance, error) {

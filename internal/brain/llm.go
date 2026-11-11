@@ -12,11 +12,11 @@ type MockLLM struct{}
 
 func (m *MockLLM) Complete(messages []string) (string, error) {
 	lastMsg := messages[len(messages)-1]
-	
+
 	if strings.Contains(strings.ToLower(lastMsg), "ls") || strings.Contains(strings.ToLower(lastMsg), "dir") {
 		return `{"route": "tool", "command": "ls"}`, nil
 	}
-	
+
 	return `{"route": "message", "content": "I am a Go agent."}`, nil
 }
 
