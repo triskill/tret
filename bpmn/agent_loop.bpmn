@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" 
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" 
+                  targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="AgentLoopProcess" isExecutable="true" name="Agent Decision Loop">
+    <bpmn:startEvent id="StartEvent_1" name="New Task Received" />
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_Think" />
+    <bpmn:serviceTask id="Task_Think" name="LLM Think Step" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_Think" targetRef="Gateway_Decision" />
+    <bpmn:exclusiveGateway id="Gateway_Decision" name="Route Decision" />
+    <bpmn:sequenceFlow id="Flow_Tool" name="tool" sourceRef="Gateway_Decision" targetRef="Task_Shell" />
+    <bpmn:serviceTask id="Task_Shell" name="Execute Shell Command" />
+    <bpmn:sequenceFlow id="Flow_Return_Shell" sourceRef="Task_Shell" targetRef="StartEvent_1" />
+    <bpmn:sequenceFlow id="Flow_User" name="message" sourceRef="Gateway_Decision" targetRef="Task_User" />
+    <bpmn:userTask id="Task_User" name="Human Interaction (REPL)" />
+    <bpmn:sequenceFlow id="Flow_Return_User" sourceRef="Task_User" targetRef="StartEvent_1" />
+    <bpmn:sequenceFlow id="Flow_Finish" name="finish" sourceRef="Gateway_Decision" targetRef="EndEvent_1" />
+    <bpmn:endEvent id="EndEvent_1" name="Task Completed" />
+  </bpmn:process>
+</bpmn:definitions>
