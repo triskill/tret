@@ -1,0 +1,14 @@
+services:
+  engine:
+    image: ghcr.io/pbinitiative/zenbpm@sha256:295ca2a270b747615aff5f7fee193224df418f8a7aa55e606cd47ee152c23157
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - ./state:/state
+  ui:
+    image: ghcr.io/pbinitiative/zenbpm-ui:v1.9.0
+    ports:
+      - "8081:80"
+    depends_on:
+      - engine
