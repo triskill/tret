@@ -73,12 +73,20 @@ func main() {
 		handled := false
 		for _, j := range jobs {
 			if j.State == "active" && j.Type == "agent-reply" {
-				fmt.Print("human input> ")
+				if at, ok := j.InputVariables["assistant_text"].(string); ok && at != "" {
+					fmt.Printf("Assistant: %s\n", at)
+				}
+				fmt.Print("You> ")
 				if !scanner.Scan() {
 					return
 				}
 				text := strings.TrimSpace(scanner.Text())
-				if err := zc.CompleteJob(j.Key, map[string]any{"message": text, "route": "message"}); err != nil {
+				if text == "/exit" {
+					_ = zc.CancelInstance(instanceKey)
+					fmt.Println("bye")
+					return
+				}
+				if err := zc.CompleteJob(j.Key, map[string]any{"user_message": text}); err != nil {
 					fmt.Println(err)
 				}
 				handled = true

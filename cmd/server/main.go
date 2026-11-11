@@ -9,6 +9,7 @@ import (
 	"github.com/pbinitiative/zenbpm-go/internal/brain"
 	"github.com/pbinitiative/zenbpm-go/internal/config"
 	"github.com/pbinitiative/zenbpm-go/internal/executor"
+	"github.com/pbinitiative/zenbpm-go/internal/contextstore"
 	"github.com/pbinitiative/zenbpm-go/internal/server"
 	"github.com/pbinitiative/zenbpm-go/internal/zen"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
@@ -30,7 +31,8 @@ func main() {
 	if os.Getenv("MOCK_LLM") == "1" {
 		llm = &brain.FinishLLM{}
 	}
-	srv := server.New(llm, runner)
+	ctxStore := contextstore.New(cfg.StateDir)
+	srv := server.New(llm, runner, ctxStore)
 
 	// deploy
 	bpmn, _ := os.ReadFile("bpmn/agent_loop.bpmn")
@@ -47,13 +49,16 @@ func main() {
 	g := zen.NewGrpcClient(conn)
 	ctx := context.Background()
 	_, err = g.RegisterWorkerWithOptions(ctx, fmt.Sprintf("zenbpm-go-server-%d", os.Getpid()), func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
-		if job != nil && job.Type != nil && *job.Type == "agent-execute" {
-			return srv.Execute(ctx, job)
+		if job != nil && job.Type != nil {
+			switch *job.Type {
+			case "agent-fail-report":
+				return srv.FailReport(ctx, job)
+			}
 		}
 		return srv.Decide(ctx, job)
 	},
 		zenclient.WithJobType("agent-decide", zenclient.WithLockDuration(5*time.Minute)),
-		zenclient.WithJobType("agent-execute", zenclient.WithLockDuration(5*time.Minute)),
+		zenclient.WithJobType("agent-fail-report", zenclient.WithLockDuration(5*time.Minute)),
 	)
 	if err != nil {
 		fmt.Println(err)

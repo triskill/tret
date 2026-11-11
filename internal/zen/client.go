@@ -112,9 +112,10 @@ func (c *Client) GetInstanceByBusinessKey(businessKey string) (*Instance, error)
 }
 
 type Job struct {
-	Key   int64  `json:"key"`
-	Type  string `json:"type"`
-	State string `json:"state"`
+	Key             int64          `json:"key"`
+	Type            string         `json:"type"`
+	State           string         `json:"state"`
+	InputVariables  map[string]any `json:"inputVariables"`
 }
 
 func (c *Client) GetInstance(key int64) (*Instance, error) {
@@ -194,6 +195,20 @@ func (c *Client) CompleteJob(jobKey int64, variables map[string]any) error {
 	rb, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("complete job failed: %s: %s", resp.Status, string(rb))
+	}
+	return nil
+}
+
+func (c *Client) CancelInstance(key int64) error {
+	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/v1/process-instances/%d/cancel", c.BaseURL, key), nil)
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cancel failed: %s: %s", resp.Status, string(b))
 	}
 	return nil
 }

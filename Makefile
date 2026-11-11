@@ -31,7 +31,7 @@ deploy:
 e2e: up build
 	@MOCK_LLM=1 go run ./cmd/server & SERVER_PID=$$!; \
 	sleep 4; \
-	printf 'hello\nsubmit\n' | go run ./cmd/agent -goal "echo hi"; \
+	printf '/exit\n' | go run ./cmd/agent -goal "echo hi"; \
 	status=$$?; \
 	kill $$SERVER_PID 2>/dev/null; \
 	exit $$status
