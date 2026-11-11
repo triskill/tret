@@ -108,7 +108,8 @@ func (r *Runner) Run(ctx context.Context, command string, timeout time.Duration)
 	defer ticker.Stop()
 
 	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
+	var waitErr error
+	go func() { waitErr = cmd.Wait(); waitCh <- waitErr }()
 
 loop:
 	for {
@@ -180,11 +181,9 @@ loop:
 	exitCode := 0
 	if cmd.ProcessState != nil {
 		exitCode = cmd.ProcessState.ExitCode()
-	} else {
-		// try wait
-		_ = cmd.Wait()
-		if cmd.ProcessState != nil {
-			exitCode = cmd.ProcessState.ExitCode()
+	} else if waitErr != nil {
+		if ee, ok := waitErr.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
 		}
 	}
 
