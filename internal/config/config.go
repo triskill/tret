@@ -70,6 +70,8 @@ func FromFlags() *Config {
 	}
 
 	fs := flag.NewFlagSet("main", flag.ExitOnError)
+	var configFile string
+	fs.StringVar(&configFile, "config", "", "config file (json/yaml)")
 	fs.StringVar(&cfg.EngineREST, "engine-rest", cfg.EngineREST, "engine REST URL")
 	fs.StringVar(&cfg.EngineGRPC, "engine-grpc", cfg.EngineGRPC, "engine gRPC URL")
 	fs.StringVar(&cfg.StateDir, "state-dir", cfg.StateDir, "state dir")
