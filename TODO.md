@@ -80,7 +80,7 @@ Engine at `~/prg/zenbpm` == tag `v1.9.0`; docs at `~/prg/zenbpm/docs`.
 
 ### P0 — honest skeleton (nothing pretending)
 - [ ] `cmd/server`, `cmd/agent` each own `main`; shared code under `internal/`
-- [ ] `internal/config`: engine REST URL, engine gRPC URL, state dir, workspace dir, model+key, budgets, per-node timeouts — flags + env (+ optional YAML)
+- [x] `internal/config`: engine REST URL, engine gRPC URL, state dir, workspace dir, model+key, budgets — flags
 - [ ] `compose.yaml`: engine + UI, **pinned by image digest**, ports 8080 / 9090 / 8081, volume for state, engine config with `jobManager` overrides and single partition
 - [ ] `Makefile`: `up`, `down`, `build`, `test`, `run-agent`, `deploy`
 - [ ] delete/docs: README explaining the two-app split + status
