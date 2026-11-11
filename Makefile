@@ -1,3 +1,6 @@
+SERVER ?= http://localhost:8080
+CONFIG ?=
+GOAL ?=
 .PHONY: up down build test run-agent run-server deploy e2e
 
 up:
@@ -14,13 +17,13 @@ test:
 
 run: up
 	@echo "Starting engine + server..."
-	@$(MAKE) run-server
+	@$(MAKE) run-server CONFIG=$(CONFIG)
 
 run-server:
-	go run ./cmd/server
+	go run ./cmd/server $(if $(CONFIG),-config $(CONFIG),)
 
 run-agent:
-	go run ./cmd/agent -goal "$(GOAL)"
+	go run ./cmd/agent -goal "$(GOAL)" -server "$(SERVER)" $(if $(CONFIG),-config $(CONFIG),)
 
 deploy:
 	go run ./cmd/server

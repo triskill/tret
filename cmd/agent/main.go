@@ -20,6 +20,14 @@ func main() {
 	serverURL := flag.String("server", "http://localhost:8080", "server url")
 	flag.Parse()
 
+	scanner := bufio.NewScanner(os.Stdin)
+	if *goal == "" || *goal == "default goal" {
+		fmt.Print("Enter goal> ")
+		if scanner.Scan() {
+			*goal = strings.TrimSpace(scanner.Text())
+		}
+	}
+
 	bpmn, err := os.ReadFile("bpmn/agent_loop.bpmn")
 	if err != nil {
 		fmt.Println(err)
@@ -55,7 +63,6 @@ func main() {
 	}
 	_ = workspace
 
-	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		inst, _ := zc.GetInstance(instanceKey)
 		if inst != nil && (inst.State == "completed" || inst.State == "terminated" || inst.State == "failed") {
