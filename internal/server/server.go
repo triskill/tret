@@ -71,8 +71,7 @@ func (s *Server) Decide(ctx context.Context, job *zen.WaitingJob) (map[string]an
 		ctxText += "user: " + um
 	}
 	sp := s.systemPrompt(job, vars)
-	prompt := sp + "\n\nConversation:\n" + ctxText + "\n\nReply to the latest user message."
-	raw, err := s.LLM.Complete([]string{prompt})
+	raw, err := s.LLM.Complete([]string{"system: " + sp, "user: Conversation:\n" + ctxText + "\n\nReply to the latest user message."})
 	if err != nil {
 		return map[string]any{"route": "fail", "error_message": err.Error()}, nil
 	}
