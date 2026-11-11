@@ -49,7 +49,7 @@ func main() {
 	}
 	g := zen.NewGrpcClient(conn)
 	ctx := context.Background()
-	_, err = g.RegisterWorkerWithOptions(ctx, fmt.Sprintf("zenbpm-go-server-%d", os.Getpid()), func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
+	_, err = g.RegisterWorkerWithOptions(ctx, fmt.Sprintf("tret-server-%d", os.Getpid()), func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
 		if job != nil && job.Type != nil {
 			switch *job.Type {
 			case "agent-fail-report":
