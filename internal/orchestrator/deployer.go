@@ -14,10 +14,10 @@ func NewDeployer(baseURL string) *Deployer {
 	return &Deployer{Client: zen.NewClient(baseURL)}
 }
 
-func (d *Deployer) Deploy(ctx context.Context, bpmnContent []byte, processName string) (string, error) {
+func (d *Deployer) Deploy(ctx context.Context, bpmnContent []byte, processName string) (int64, error) {
 	key, _, err := d.Client.Deploy(bpmnContent)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 	return key, nil
 }

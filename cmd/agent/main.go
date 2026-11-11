@@ -27,6 +27,7 @@ func main() {
 
 	key, err := deployer.Deploy(context.Background(), content, "AgentDecisionLoop")
 	_ = key
+	_ = key
 	if err != nil {
 		fmt.Printf("[Startup] Failed to deploy BPMN process: %v\\n", err)
 	} else {

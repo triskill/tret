@@ -18,27 +18,27 @@ func NewClient(baseURL string) *Client {
 }
 
 type DeployResult struct {
-	ProcessDefinitionKey string `json:"processDefinitionKey"`
+	ProcessDefinitionKey int64 `json:"processDefinitionKey"`
 }
 
-func (c *Client) Deploy(bpmn []byte) (string, bool, error) {
+func (c *Client) Deploy(bpmn []byte) (int64, bool, error) {
 	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/v1/process-definitions", bytes.NewReader(bpmn))
 	if err != nil {
-		return "", false, err
+		return 0, false, err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return "", false, err
+		return 0, false, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", false, fmt.Errorf("deploy failed: %s: %s", resp.Status, string(body))
+		return 0, false, fmt.Errorf("deploy failed: %s: %s", resp.Status, string(body))
 	}
 	var r DeployResult
 	if err := json.Unmarshal(body, &r); err != nil {
-		return "", false, fmt.Errorf("parse deploy response: %w", err)
+		return 0, false, fmt.Errorf("parse deploy response: %w", err)
 	}
 	return r.ProcessDefinitionKey, resp.StatusCode == http.StatusCreated, nil
 }
@@ -49,7 +49,7 @@ type StartInstanceResult struct {
 	State               string `json:"state"`
 }
 
-func (c *Client) StartInstance(processDefinitionKey, businessKey string, variables map[string]any) (int64, error) {
+func (c *Client) StartInstance(processDefinitionKey int64, businessKey string, variables map[string]any) (int64, error) {
 	body := map[string]any{
 		"processDefinitionKey": processDefinitionKey,
 		"businessKey":          businessKey,
@@ -110,7 +110,7 @@ type Job struct {
 }
 
 func (c *Client) ListJobs(processInstanceKey int64) ([]Job, error) {
-	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/jobs?processInstanceKey=%d", c.BaseURL, processInstanceKey))
+	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/process-instances/%d/jobs", c.BaseURL, processInstanceKey))
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ type Incident struct {
 }
 
 func (c *Client) ListIncidents(processInstanceKey int64) ([]Incident, error) {
-	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/incidents?processInstanceKey=%d", c.BaseURL, processInstanceKey))
+	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/process-instances/%d/incidents", c.BaseURL, processInstanceKey))
 	if err != nil {
 		return nil, err
 	}
