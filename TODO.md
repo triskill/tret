@@ -87,7 +87,7 @@ Engine at `~/prg/zenbpm` == tag `v1.9.0`; docs at `~/prg/zenbpm/docs`.
 
 ### P1 — engine adapter (`internal/zen`)
 - [ ] deploy BPMN bytes → parse `processDefinitionKey`, treat 200/201 both as success
-- [ ] start instance with `businessKey` = run id, initial variables (`goal`, `route`)
+- [x] start instance with `businessKey` = run id, initial variables (`goal`, `route`)
 - [ ] readback helpers: instances by businessKey, jobs of a PI, incidents, history
 - [ ] typed errors for the three documented outcomes (✅ result / ✅ X / ❌ outcome + retry) so callers can stop safely (Q5)
 
