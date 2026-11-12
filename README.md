@@ -1,22 +1,24 @@
 # tret
 
+[![CI](https://github.com/triskill/tret/actions/workflows/ci.yaml/badge.svg)](https://github.com/triskill/tret/actions/workflows/ci.yaml)
+
 An AI agent whose control loop is an **executable BPMN process**, not hidden
 control flow. [ZenBPM](https://github.com/pbinitiative/zenbpm) (the workflow
 engine) creates every job and routes every turn; tret supplies the LLM
-decision worker, tool execution, durable run state, and the human-facing CLI.
+decision worker, durable run state, and the human-facing CLI.
 
 ## Topology
 
 ```
-┌─────────────┐   REST (deploy/start/readback)   ┌─────────────┐
-│ tret server │ ◀──────────────────────────────▶ │ zenbpm      │
-│             │ ◀──────── gRPC JobStream ─────── │ engine      │
-│  · decides  │                                  └──────▲──────┘
-│  · executes │                                         │ REST
-│  · owns     │                                  ┌──────┴──────┐
-│    state    │                                  │ tret agent  │
-└─────────────┘                                  │ (your CLI)  │
-                                                 └─────────────┘
+┌───────────────┐     REST (deploy/start/readback)    ┌──────────────┐
+│ tret server   │ ◀─────────────────────────────────▶ │ zenbpm       │
+│               │ ◀───────── gRPC JobStream ───────── │ engine       │
+│ · decide      │                                     └─────▲────────┘
+│ · fail report │                                           │ REST
+│ · context     │                                     ┌─────┴────────┐
+│   state       │                                     │ tret agent   │
+└───────────────┘                                     │ (your CLI)   │
+                                                      └──────────────┘
 ```
 
 - **`tret server`** (`cmd/server`) deploys the embedded `agent_loop` process at
@@ -35,6 +37,7 @@ Requires Go (version in `go.mod`), Docker with Compose, and either a local
 Ollama or an OpenAI-compatible API key.
 
 ```sh
+git clone git@github.com:triskill/tret.git && cd tret
 make up                                  # engine + UI containers
 cp config.example.yaml config.yaml       # edit model / api_key / api_base
 make run-server CONFIG=config.yaml       # terminal 1: deploys + serves workers
@@ -49,8 +52,9 @@ immediately finishes — a smoke test of engine wiring, not of intelligence.
 
 ## Configuration
 
-`config.yaml` (or flags of the same names) — see
-[config.example.yaml](config.example.yaml) for all keys. Highlights:
+`config.yaml` — see [config.example.yaml](config.example.yaml) for all keys.
+Every key is also a server flag, dashes for underscores (`state_dir` →
+`-state-dir`). Highlights:
 
 | key | meaning |
 |---|---|
