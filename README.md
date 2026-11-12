@@ -71,4 +71,4 @@ implemented and unit-tested, the BPMN branch is not yet), structured
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
