@@ -23,19 +23,19 @@ was discussed and agreed; changing one means editing this file first, then the c
 | D3 | Who calls the LLM | The **server** runs `agent-decide`. The agent app never talks to a model |
 | D4 | Human in the loop | The agent CLI *is* the `reply` user-task worker: it waits on the active user task and completes it with what the human typed |
 | D5 | State ownership | Server owns durable state (SQLite under `--state-dir`: runs, decision trace, tool output spill). Agent keeps only local render state |
-| D6 | Runner | Port `../executor/runner.py` semantics: `bash -lc`, own process group, TERM→KILL escalation, output caps, timeout, exit code preserved. Kills the `strings.Fields` bug |
+| D6 | Runner | Port [executor/runner.py](https://github.com/triskill/zenbpm-harness/blob/main/executor/runner.py) semantics: `bash -lc`, own process group, TERM→KILL escalation, output caps, timeout, exit code preserved. Kills the `strings.Fields` bug |
 | D7 | Tool surface | Exactly one tool, `bash`, max one call per decision, native OpenAI-style function calling |
 | D8 | Recovery | No recovery matrix, no journal, no fenced generations. Unknown outcome → `fail` → accept the incident → stop |
 | D9 | Packaging | Engine + UI in containers (pinned digest); `server` and `agent` as plain local binaries. Executor container tier replaced by local exec in the workspace |
 | D10 | Diagram | Single hand-authored `bpmn/agent_loop.bpmn` **with BPMN DI** (`bpmndi:BPMNPlane`, shapes + waypointed edges) so zenbpm-ui renders it; embedded with `go:embed` |
 | D11 | Retries | Per-node `zenbpm:taskDefinition` with `retries="3" retryBackoff="PT10S"` on the external tasks (engine default is a single attempt) |
 | D12 | Loop guard | App-level budgets live in the server (max tool calls / model turns / wall clock; port JSON defaults 24 / 12 / 900s). Engine's 10 000-flow-node guard stays as backstop |
-| D13 | Python tree | `../` stays a read-only behavioural reference: verified ZenBPM v1.9 adapter quirks, executor rules, tests to port. No cross imports; the Go tree stands alone |
+| D13 | Python tree | [zenbpm-harness](https://github.com/triskill/zenbpm-harness) stays a read-only behavioural reference: verified ZenBPM v1.9 adapter quirks, executor rules, tests to port. No cross imports; this tree stands alone |
 | D14 | Route vocabulary | `{tool, message, finish, fail}` only — the Python `correct` route is dropped |
 
 ## 2. Engine facts this design leans on (checked in this machine's engine source)
 
-Engine at `~/prg/zenbpm` == tag `v1.9.0`; docs at `~/prg/zenbpm/docs`.
+Engine == [pbinitiative/zenbpm](https://github.com/pbinitiative/zenbpm) tag `v1.9.0`; docs in its [docs/](https://github.com/pbinitiative/zenbpm/tree/v1.9.0/docs) tree, Go client in `pkg/zenclient` (module dependency).
 
 - Deploy = `POST /v1/process-definitions`, body = raw BPMN bytes (`application/octet-stream`).
   Same normalized content ⇒ `200` with the existing `processDefinitionKey`; change ⇒ `201` + new key.
@@ -99,13 +99,13 @@ Engine at `~/prg/zenbpm` == tag `v1.9.0`; docs at `~/prg/zenbpm/docs`.
 - [ ] hand-authored BPMN DI verified by opening the file in `zenbpm-bpmn-js` Modeler (D10) (pending)
 
 ### P3 — executor (D6)
-- [ ] port `../executor/runner.py`: `bash -lc`, own process group, TERM→KILL, `timeout`, stdout/stderr caps, exit code retention, `before = now()` order
+- [ ] port [executor/runner.py](https://github.com/triskill/zenbpm-harness/blob/main/executor/runner.py): `bash -lc`, own process group, TERM→KILL, `timeout`, stdout/stderr caps, exit code retention, `before = now()` order
 - [ ] large output spill (file on disk + a bounded summary and `<output_ref>`) — keep small, engine variables stay small
 - [ ] ID-per-attempt so a redelivered job swaps both the active lock and evidence (keep, not overwrite)
 
 ### P4 — decide worker (the brain, D3)
 - [ ] `openai_compat.go`: OpenAI-compatible chat + function calling, single `bash` tool, SSE streaming, ≤100 messages / ~40k token window, `zen-turn-id`/`zen-run-id` headers
-- [ ] `prompts.go`: workspace SYSTEM prompt (+ copy `../harness/authoring/system_agent.txt` for reference), refusal/`finish` rules
+- [ ] `prompts.go`: workspace SYSTEM prompt (+ copy [harness/authoring/system_agent.txt](https://github.com/triskill/zenbpm-harness/blob/main/harness/authoring/system_agent.txt) for reference), refusal/`finish` rules
 - [ ] deterministic route classification: native `tool_calls` / `finish`/`reflect` objects, never `strings.Contains`
 - [ ] result → job variables `{route, command|message}` and `{route:"finish"|"fail"}`
 - [ ] `MockLLM` behind an interface for tests only, never a silent default
