@@ -60,10 +60,10 @@ func loadFile(path string, cfg *Config) error {
 	}
 }
 
-func FromFlags() *Config {
+func FromFlags(args []string) *Config {
 	pre := flag.NewFlagSet("pre", flag.ExitOnError)
 	configPath := pre.String("config", "", "config file (json/yaml)")
-	pre.Parse(os.Args[1:])
+	pre.Parse(args)
 
 	cfg := defaults()
 	if *configPath != "" {
@@ -87,6 +87,6 @@ func FromFlags() *Config {
 	fs.IntVar(&cfg.MaxToolCalls, "max-tool-calls", cfg.MaxToolCalls, "max tool calls")
 	fs.IntVar(&cfg.MaxModelTurns, "max-model-turns", cfg.MaxModelTurns, "max model turns")
 	fs.IntVar(&cfg.WallClockSec, "wall-clock", cfg.WallClockSec, "wall clock sec")
-	fs.Parse(os.Args[1:])
+	fs.Parse(args)
 	return cfg
 }

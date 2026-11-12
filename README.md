@@ -21,13 +21,14 @@ decision worker, durable run state, and the human-facing CLI.
                                                       └──────────────┘
 ```
 
-- **`tret server`** (`cmd/server`) deploys the embedded `agent_loop` process at
+- **`tret server`** subcommand deploys the embedded `agent_loop` process at
   startup (idempotent), registers gRPC job workers (`agent-decide`,
   `agent-fail-report`), calls the LLM, and owns durable context state under
   `--state-dir`.
-- **`tret agent`** (`cmd/agent`) is what you run in a working directory: it
-  starts a run (or attaches with `-continue`) and completes the process's
-  `agent-reply` user tasks with what you type. It never talks to a model.
+- **`tret agent`** subcommand (the default, so bare `tret` works) is what you
+  run in a working directory: it starts a run (or attaches with `-continue`)
+  and completes the process's `agent-reply` user tasks with what you type. It
+  never talks to a model.
 - **`zenbpm-ui`** on <http://localhost:8081> lets you inspect instances,
   tokens, jobs, and incidents.
 
@@ -49,6 +50,18 @@ In the agent prompt, `/exit` cancels the run. Re-attach later with
 
 No model at hand? `make e2e` runs the whole stack against a mock LLM that
 immediately finishes — a smoke test of engine wiring, not of intelligence.
+
+## Install
+
+Make targets are just conveniences around one static binary; install it and
+run from any folder (the engine must be reachable):
+
+```sh
+go install github.com/triskill/tret/cmd/tret@latest
+
+tret server -config config.yaml    # worker daemon, one per engine
+tret -goal "work on this repo"     # agent CLI; bare 'tret' == 'tret agent'
+```
 
 ## Configuration
 

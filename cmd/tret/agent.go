@@ -1,7 +1,3 @@
-// Command agent is the workspace-facing CLI: it starts (or attaches to) an
-// agent_loop run on the engine and answers the run's agent-reply user tasks
-// with human input. The tret server must be running: it owns deployment,
-// the decide worker, and durable state.
 package main
 
 import (
@@ -15,12 +11,17 @@ import (
 	"github.com/triskill/tret/internal/zen"
 )
 
-func main() {
-	goal := flag.String("goal", "", "goal of a new run (passed as the initial user message)")
-	continueKey := flag.String("continue", "", "business key of existing run to attach to")
-	engineURL := flag.String("engine", "http://localhost:8080", "engine REST URL")
-	workspace := flag.String("workspace", ".", "workspace dir")
-	flag.Parse()
+// runAgent is the workspace-facing CLI: it starts (or attaches to) an
+// agent_loop run on the engine and answers the run's agent-reply user tasks
+// with human input. The tret server must be running: it owns deployment,
+// the decide worker, and durable state.
+func runAgent(args []string) {
+	fs := flag.NewFlagSet("agent", flag.ExitOnError)
+	goal := fs.String("goal", "", "goal of a new run (passed as the initial user message)")
+	continueKey := fs.String("continue", "", "business key of existing run to attach to")
+	engineURL := fs.String("engine", "http://localhost:8080", "engine REST URL")
+	workspace := fs.String("workspace", ".", "workspace dir")
+	fs.Parse(args)
 	_ = workspace // tool execution happens server-side in the workspace; reserved for render state
 
 	zc := zen.NewClient(*engineURL)

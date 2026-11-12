@@ -21,18 +21,21 @@ run: up
 	@$(MAKE) run-server CONFIG=$(CONFIG)
 
 run-server:
-	go run ./cmd/server $(if $(CONFIG),-config $(CONFIG),)
+	go run ./cmd/tret server $(if $(CONFIG),-config $(CONFIG),)
 
 run-agent:
-	go run ./cmd/agent -goal "$(GOAL)" -engine "$(ENGINE)" $(ARGS)
+	go run ./cmd/tret agent -goal "$(GOAL)" -engine "$(ENGINE)" $(ARGS)
 
 deploy:
-	go run ./cmd/server
+	go run ./cmd/tret server
 
 e2e: up
 	@BIN=$$(mktemp -d); \
 	trap 'kill $${SERVER_PID:-0} 2>/dev/null; rm -rf $$BIN' EXIT; \
-	go build -o $$BIN/server ./cmd/server && go build -o $$BIN/agent ./cmd/agent || exit 1; \
-	MOCK_LLM=1 $$BIN/server & SERVER_PID=$$!; \
-	sleep 2; \
-	printf '/exit\n' | $$BIN/agent -goal "echo hi"
+	go build -o $$BIN/tret ./cmd/tret || exit 1; \
+	MOCK_LLM=1 $$BIN/tret server & SERVER_PID=$$!; \
+	for i in $$(seq 1 60); do \
+		curl -sf "$(ENGINE)/v1/process-definitions?bpmnProcessId=agent_loop&onlyLatest=true" | grep -q agent_loop && break; \
+		sleep 1; \
+	done; \
+	printf '/exit\n' | $$BIN/tret agent -goal "echo hi"

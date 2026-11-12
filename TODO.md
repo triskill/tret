@@ -9,8 +9,8 @@ was discussed and agreed; changing one means editing this file first, then the c
 
 | Piece | What it is |
 |---|---|
-| **server** (`cmd/server`) | Deploys the agent-loop BPMN to ZenBPM at startup, registers gRPC job workers for every external task, runs the LLM `decide` step, runs tool execution, owns durable run state (SQLite). |
-| **agent** (`cmd/agent`) | Workspace-facing CLI the human opens in a working directory: submits the goal, renders the conversation, answers engine `userTask`s with human input. |
+| **server** (`tret server` subcommand) | Deploys the agent-loop BPMN to ZenBPM at startup, registers gRPC job workers for every external task, runs the LLM `decide` step, runs tool execution, owns durable run state (SQLite). |
+| **agent** (`tret agent`, the default subcommand) | Workspace-facing CLI the human opens in a working directory: submits the goal, renders the conversation, answers engine `userTask`s with human input. |
 | **engine** | `ghcr.io/pbinitiative/zenbpm:v1.9.0` — the state machine. Never re-implemented (D13). |
 | **zenbpm-ui** | `ghcr.io/pbinitiative/zenbpm-ui:v1.9.0` on `:8081`, to inspect instances / tokens / jobs / incidents. |
 
@@ -79,7 +79,7 @@ Engine == [pbinitiative/zenbpm](https://github.com/pbinitiative/zenbpm) tag `v1.
 ## 4. Work packages
 
 ### P0 — honest skeleton (nothing pretending)
-- [x] `cmd/server`, `cmd/agent` each own `main`; shared code under `internal/`
+- [x] single `cmd/tret` binary: `server`/`agent` subcommands, agent is default; shared code under `internal/`
 - [x] `internal/config`: engine REST URL, engine gRPC URL, state dir, workspace dir, model+key, budgets — flags
 - [ ] `compose.yaml`: engine + UI, **pinned by image digest** ✅, ports 8080 / 9090 / 8081 ✅, volume for state ✅, engine config with `jobManager` overrides and single partition (pending)
 - [ ] `Makefile`: `up`, `down`, `build`, `test`, `run-agent`, `deploy`
@@ -113,7 +113,7 @@ Engine == [pbinitiative/zenbpm](https://github.com/pbinitiative/zenbpm) tag `v1.
 ### P5 — agent CLI
 - [ ] watch this run's active `reply` user task and complete it with human input
 - [ ] render conversation + one-liner per decision/tool/incident
-- [ ] flags: `-goal`, `-continue`, `--workspace`, `--server`
+- [ ] flags: `-goal`, `-continue`, `-workspace`, `-engine`
 - [ ] stop cleanly on `endSuccess` / `endFailure` / incident
 
 ### P6 — server state & limits
