@@ -114,10 +114,11 @@ func (c *Client) StartInstance(processDefinitionKey int64, businessKey string, v
 }
 
 type Instance struct {
-	Key                  int64  `json:"key"`
-	BusinessKey          string `json:"businessKey"`
-	State                string `json:"state"`
-	ProcessDefinitionKey int64  `json:"processDefinitionKey"`
+	Key                  int64          `json:"key"`
+	BusinessKey          string         `json:"businessKey"`
+	State                string         `json:"state"`
+	ProcessDefinitionKey int64          `json:"processDefinitionKey"`
+	Variables            map[string]any `json:"variables"`
 }
 
 func (c *Client) GetInstanceByBusinessKey(businessKey string) (*Instance, error) {

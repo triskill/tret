@@ -66,8 +66,8 @@ tret -goal "work on this repo"     # agent CLI; bare 'tret' == 'tret agent'
 ## Configuration
 
 `config.yaml` — see [config.example.yaml](config.example.yaml) for all keys.
-Every key is also a server flag, dashes for underscores (`state_dir` →
-`-state-dir`). Highlights:
+Server flags use dashes (`state_dir` → `-state-dir`); `wall_clock_sec`
+uses `-wall-clock`. Highlights:
 
 | key | meaning |
 |---|---|
@@ -75,16 +75,31 @@ Every key is also a server flag, dashes for underscores (`state_dir` →
 | `ollama_base` | empty key ⇒ local Ollama |
 | `engine_rest` / `engine_grpc` | where the engine lives (`:8080` / `:9090`) |
 | `state_dir` | server's durable context store |
-| `max_tool_calls` / `max_model_turns` / `wall_clock_sec` | run budgets |
+| `max_tool_calls` / `max_model_turns` / `wall_clock_sec` | positive run budgets (24 / 12 / 900 by default) |
 
 ## Status
 
-Early. What works today: deploy → start → decide → reply loop with durable
-per-run context, fail routing with incident reporting, mock-LLM e2e. What is
-deliberately missing: the `bash` tool branch of the process (the executor is
-implemented and unit-tested, the BPMN branch is not yet), structured
-`tool_calls`, budgets enforcement, SQLite spill. The full decision record
-(D1–D14) and work packages (P0–P7) live in [TODO.md](TODO.md).
+Early development. BPMN owns every transition, including budget checks before
+model and tool calls. Counters and the run start time are persisted as process
+variables; the server evaluates limits and BPMN routes exhaustion to failure.
+The wall-clock budget starts at the first model-budget check and is checked at
+step boundaries, not while waiting for human input. Completed instances carry
+`run_outcome: success|failure` because both BPMN end events complete normally.
+
+Model and command jobs have one attempt to avoid automatic retries of side
+effects. Engine redelivery is still possible; execution is not exactly-once.
+Conversation state is JSONL; SQLite, output spill, and context-window bounds
+remain unfinished. The executor runs commands locally with the server's
+permissions; it is not a security sandbox. `agent -workspace` does not select
+the execution directory: configure the server's workspace instead.
+See [TODO.md](TODO.md) for remaining work.
+
+Live process tests (requires the Compose engine):
+
+```sh
+make up
+TRET_INTEGRATION=1 go test -v ./internal/integration
+```
 
 ## License
 

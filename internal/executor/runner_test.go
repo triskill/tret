@@ -85,3 +85,72 @@ func TestRunnerWorkspace(t *testing.T) {
 		t.Fatalf("stdout=%q", res.Stdout)
 	}
 }
+
+func TestRunnerDrainsBothStreams(t *testing.T) {
+	r := newTestRunner(t)
+	for i := 0; i < 20; i++ {
+		res, err := r.Run(context.Background(), `printf '%032768d' 0; printf '%032768d' 0 >&2`, 10*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.Repeat("0", outputLimit)
+		if res.Stdout != want || res.Stderr != want || res.Truncated {
+			t.Fatalf("stdout=%d stderr=%d truncated=%v", len(res.Stdout), len(res.Stderr), res.Truncated)
+		}
+	}
+}
+
+func TestRunnerCancellationKillsIgnoringProcess(t *testing.T) {
+	r := newTestRunner(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := filepath.Join(r.WorkspaceRoot, "ready")
+	result := make(chan *RunResult, 1)
+	errors := make(chan error, 1)
+	go func() {
+		res, err := r.Run(ctx, `trap '' TERM; touch ready; while :; do :; done`, 10*time.Second)
+		result <- res
+		errors <- err
+	}()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("command did not start")
+		case <-tick.C:
+		}
+	}
+	cancel()
+	select {
+	case res := <-result:
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+		if !res.Cancelled || res.TimedOut || res.ExitCode != -1 {
+			t.Fatalf("unexpected result: %+v", res)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancelled command did not stop")
+	}
+}
+
+func TestRunnerDoesNotWaitForBackgroundDescendants(t *testing.T) {
+	r := newTestRunner(t)
+	start := time.Now()
+	res, err := r.Run(context.Background(), `sleep 30 & printf done`, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stdout != "done" || res.ExitCode != 0 || res.TimedOut || res.Cancelled {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("waited for background descendant")
+	}
+}

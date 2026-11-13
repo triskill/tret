@@ -5,9 +5,9 @@ workspace: .
 model: qwen3:4b
 api_key: ""
 # OpenAI-compatible endpoint, used when api_key is set:
-api_base: https://api.openai.com
-# local Ollama endpoint, used when api_key is empty:
-ollama_base: http://localhost:11434
+api_base: https://api.openai.com/v1
+# local Ollama OpenAI-compatible endpoint, used when api_key is empty:
+ollama_base: http://localhost:11434/v1
 max_tool_calls: 24
 max_model_turns: 12
 wall_clock_sec: 900

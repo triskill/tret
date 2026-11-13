@@ -1,6 +1,6 @@
 # tret — architecture, plan & progress tracker
 
-Updated: 2026-07-15. Tick boxes as work lands. Every **D-number** is an architecture decision that
+Updated: 2026-11-13. Tick boxes as work lands. Every **D-number** is an architecture decision that
 was discussed and agreed; changing one means editing this file first, then the code.
 
 ---
@@ -18,7 +18,7 @@ was discussed and agreed; changing one means editing this file first, then the c
 
 | # | Topic | Decision |
 |---|---|---|
-| D1 | Process shape | One process `agent_loop`: `start → decide → exclusive GW → { execute → loop back · reply(userTask) → loop back · finish → endSuccess · fail → endFailure }` |
+| D1 | Process shape | One process `agent_loop`: `start → reply → budget(decide) → decide → exclusive GW → { budget(execute) → execute → loop back · reply(userTask) → loop back · finish → endSuccess · fail → endFailure }`; BPMN owns every transition and budget gateway |
 | D2 | Job transport | gRPC JobStream through the engine's own Go client `github.com/pbinitiative/zenbpm/pkg/zenclient` (`RegisterWorker`, locks, reconnect/backoff). REST only for deploy / start instance / readback |
 | D3 | Who calls the LLM | The **server** runs `agent-decide`. The agent app never talks to a model |
 | D4 | Human in the loop | The agent CLI *is* the `reply` user-task worker: it waits on the active user task and completes it with what the human typed |
@@ -28,8 +28,8 @@ was discussed and agreed; changing one means editing this file first, then the c
 | D8 | Recovery | No recovery matrix, no journal, no fenced generations. Unknown outcome → `fail` → accept the incident → stop |
 | D9 | Packaging | Engine + UI in containers (pinned digest); `server` and `agent` as plain local binaries. Executor container tier replaced by local exec in the workspace |
 | D10 | Diagram | Single hand-authored `bpmn/agent_loop.bpmn` **with BPMN DI** (`bpmndi:BPMNPlane`, shapes + waypointed edges) so zenbpm-ui renders it; embedded with `go:embed` |
-| D11 | Retries | Per-node `zenbpm:taskDefinition` with `retries="3" retryBackoff="PT10S"` on the external tasks (engine default is a single attempt) |
-| D12 | Loop guard | App-level budgets live in the server (max tool calls / model turns / wall clock; port JSON defaults 24 / 12 / 900s). Engine's 10 000-flow-node guard stays as backstop |
+| D11 | Retries | Per-node `zenbpm:taskDefinition`: budget checks may retry; decide and execute use one attempt to avoid automatic replay of model calls or side effects. Transport redelivery remains possible; exactly-once execution is not guaranteed |
+| D12 | Loop guard | BPMN schedules a server budget-check worker before every model/tool call and routes denial to failure. Counters and start time live in process variables; server limits default to 24 / 12 / 900s. Wall clock is checked at step boundaries (not a timer while waiting for a human). Engine's 10 000-flow-node guard stays as backstop |
 | D13 | Python tree | [zenbpm-harness](https://github.com/triskill/zenbpm-harness) stays a read-only behavioural reference: verified ZenBPM v1.9 adapter quirks, executor rules, tests to port. No cross imports; this tree stands alone |
 | D14 | Route vocabulary | `{tool, message, finish, fail}` only — the Python `correct` route is dropped |
 
@@ -119,10 +119,19 @@ Engine == [pbinitiative/zenbpm](https://github.com/pbinitiative/zenbpm) tag `v1.
 ### P6 — server state & limits
 - [ ] SQLite at `--state-dir`: runs, decision trace, tool output spill files
 - [ ] tool output spill to disk, only a short summary goes to engine
-- [ ] budgets (D12) enforced server-side; route `fail` connects fail-end detail
+- [x] budgets (D12) evaluated server-side; BPMN budget gateways connect to fail-end detail
 - [ ] restart = deploy is idempotency safe and runs readable from db
 
 ### P7 — tests
 - [ ] go unit tests for zen client wrapper
-- [ ] integration tests against engine containers
+- [x] opt-in integration tests against engine containers: reply, tool loop, outcomes, and budgets
 
+
+## 5. BPMN control-loop hardening (2026-11-13)
+
+- [x] BPMN budget tasks and gateways before model/tool calls; process variables own counters.
+- [x] Explicit success/failure outcome independent of engine completion state.
+- [x] No automatic retries for decide/execute; engine redelivery remains a known limitation.
+- [x] Transcript write failures stop progression rather than silently losing evidence.
+- [ ] Exactly-once execution / crash recovery is not implemented; do not assume safe replay.
+- [ ] Context-window bounds, SQLite, and large-output spill remain unfinished.

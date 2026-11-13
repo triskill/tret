@@ -26,15 +26,18 @@ func (s *Store) path(key string) string {
 	return filepath.Join(s.Dir, "contexts", safe+".jsonl")
 }
 
-func (s *Store) Load(key string) (string, error) {
+// LoadEntries returns the stored conversation as structured entries.
+// A missing file is an empty history, not an error; corrupt lines are
+// skipped so one bad write can never wedge a run.
+func (s *Store) LoadEntries(key string) ([]Entry, error) {
 	b, err := os.ReadFile(s.path(key))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return nil, nil
 		}
-		return "", err
+		return nil, err
 	}
-	var lines []string
+	var entries []Entry
 	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		if line == "" {
 			continue
@@ -43,6 +46,20 @@ func (s *Store) Load(key string) (string, error) {
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			continue
 		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+// Load renders the conversation as "role: content" lines (for the
+// engine-side `context` variable used for UI observability).
+func (s *Store) Load(key string) (string, error) {
+	entries, err := s.LoadEntries(key)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, e := range entries {
 		lines = append(lines, fmt.Sprintf("%s: %s", e.Role, e.Content))
 	}
 	return strings.Join(lines, "\n"), nil

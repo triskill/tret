@@ -26,17 +26,19 @@ func runServer(args []string) {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	var llm brain.LLMProvider
-	if cfg.APIKey != "" {
-		llm = brain.NewOpenAICompat(cfg.APIBase, cfg.Model, cfg.APIKey)
-	} else {
-		llm = brain.NewOllamaLLM(cfg.OllamaBase, cfg.Model)
+	// One OpenAI-compatible client serves both provider tiers: api_key
+	// set → api_base (OpenAI/OpenRouter/...); empty → local Ollama /v1.
+	base := cfg.APIBase
+	if cfg.APIKey == "" {
+		base = cfg.OllamaBase
 	}
+	var llm brain.LLMProvider = brain.NewOpenAICompat(base, cfg.Model, cfg.APIKey)
 	if os.Getenv("MOCK_LLM") == "1" {
 		llm = &brain.FinishLLM{}
 	}
 	ctxStore := contextstore.New(cfg.StateDir)
 	srv := server.New(llm, runner, ctxStore)
+	srv.Limits = server.Limits{MaxToolCalls: cfg.MaxToolCalls, MaxModelTurns: cfg.MaxModelTurns, WallClockSec: cfg.WallClockSec}
 
 	zc := zen.NewClient(cfg.EngineREST)
 	// A fresh compose stack takes a while to boot: retry the idempotent
@@ -59,6 +61,10 @@ func runServer(args []string) {
 	worker := func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
 		if job != nil && job.Type != nil {
 			switch *job.Type {
+			case "agent-budget":
+				return srv.CheckBudget(ctx, job)
+			case "agent-execute":
+				return srv.Execute(ctx, job)
 			case "agent-fail-report":
 				return srv.FailReport(ctx, job)
 			}
@@ -70,7 +76,9 @@ func runServer(args []string) {
 		if err == nil {
 			g := zen.NewGrpcClient(conn)
 			_, err = g.RegisterWorkerWithOptions(ctx, fmt.Sprintf("tret-server-%d", os.Getpid()), worker,
+				zenclient.WithJobType("agent-budget", zenclient.WithLockDuration(5*time.Minute)),
 				zenclient.WithJobType("agent-decide", zenclient.WithLockDuration(5*time.Minute)),
+				zenclient.WithJobType("agent-execute", zenclient.WithLockDuration(5*time.Minute)),
 				zenclient.WithJobType("agent-fail-report", zenclient.WithLockDuration(5*time.Minute)),
 			)
 		}

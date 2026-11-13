@@ -33,9 +33,10 @@ e2e: up
 	@BIN=$$(mktemp -d); \
 	trap 'kill $${SERVER_PID:-0} 2>/dev/null; rm -rf $$BIN' EXIT; \
 	go build -o $$BIN/tret ./cmd/tret || exit 1; \
-	MOCK_LLM=1 $$BIN/tret server & SERVER_PID=$$!; \
+	MOCK_LLM=1 $$BIN/tret server > $$BIN/server.log 2>&1 & SERVER_PID=$$!; \
 	for i in $$(seq 1 60); do \
-		curl -sf "$(ENGINE)/v1/process-definitions?bpmnProcessId=agent_loop&onlyLatest=true" | grep -q agent_loop && break; \
+		grep -q 'deployed agent_loop' $$BIN/server.log 2>/dev/null && break; \
 		sleep 1; \
 	done; \
-	printf '/exit\n' | $$BIN/tret agent -goal "echo hi"
+	grep -m1 'deployed agent_loop' $$BIN/server.log || { cat $$BIN/server.log; exit 1; }; \
+	printf '/exit\n' | $$BIN/tret agent -goal "echo hi" || { cat $$BIN/server.log; exit 1; }

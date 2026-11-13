@@ -32,8 +32,8 @@ func defaults() *Config {
 		StateDir:      "./data",
 		Workspace:     ".",
 		Model:         "gpt-4o-mini",
-		APIBase:       "https://api.openai.com",
-		OllamaBase:    "http://localhost:11434",
+		APIBase:       "https://api.openai.com/v1",
+		OllamaBase:    "http://localhost:11434/v1",
 		MaxToolCalls:  24,
 		MaxModelTurns: 12,
 		WallClockSec:  900,
@@ -61,17 +61,7 @@ func loadFile(path string, cfg *Config) error {
 }
 
 func FromFlags(args []string) *Config {
-	pre := flag.NewFlagSet("pre", flag.ExitOnError)
-	configPath := pre.String("config", "", "config file (json/yaml)")
-	pre.Parse(args)
-
 	cfg := defaults()
-	if *configPath != "" {
-		if err := loadFile(*configPath, cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "config load error: %v\n", err)
-			os.Exit(1)
-		}
-	}
 
 	fs := flag.NewFlagSet("main", flag.ExitOnError)
 	var configFile string
@@ -87,6 +77,15 @@ func FromFlags(args []string) *Config {
 	fs.IntVar(&cfg.MaxToolCalls, "max-tool-calls", cfg.MaxToolCalls, "max tool calls")
 	fs.IntVar(&cfg.MaxModelTurns, "max-model-turns", cfg.MaxModelTurns, "max model turns")
 	fs.IntVar(&cfg.WallClockSec, "wall-clock", cfg.WallClockSec, "wall clock sec")
+	// Parse the complete flag set to find -config regardless of flag order.
 	fs.Parse(args)
+	if configFile != "" {
+		if err := loadFile(configFile, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "config load error: %v\n", err)
+			os.Exit(1)
+		}
+		// Explicit flags take precedence over values loaded from the file.
+		fs.Parse(args)
+	}
 	return cfg
 }

@@ -73,14 +73,29 @@ func (r *Runner) Run(ctx context.Context, command string, timeout time.Duration)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	stdoutPipe, _ := cmd.StdoutPipe()
-	stderrPipe, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
+	// Own the pipes so Wait cannot close them before readers drain the output.
+	stdoutPipe, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	defer stdoutPipe.Close()
+	stderrPipe, stderrWriter, err := os.Pipe()
+	if err != nil {
+		stdoutWriter.Close()
+		return nil, err
+	}
+	defer stderrPipe.Close()
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
+	err = cmd.Start()
+	stdoutWriter.Close()
+	stderrWriter.Close()
+	if err != nil {
 		return nil, err
 	}
 
 	pgid := cmd.Process.Pid
-	var groupSignal = func(sig syscall.Signal) {
+	groupSignal := func(sig syscall.Signal) {
 		_ = syscall.Kill(-pgid, sig)
 	}
 
@@ -100,80 +115,50 @@ func (r *Runner) Run(ctx context.Context, command string, timeout time.Duration)
 		readDone <- struct{}{}
 	}()
 
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+
 	timedOut := false
 	cancelled := false
-	killed := false
-	stopAt := time.Time{}
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-
-	waitCh := make(chan error, 1)
 	var waitErr error
-	go func() { waitErr = cmd.Wait(); waitCh <- waitErr }()
-
-loop:
-	for {
-		select {
-		case err := <-waitCh:
-			// process exited; drain pipes briefly
-			drainUntil := time.Now().Add(drainGrace)
-			for time.Now().Before(drainUntil) {
-				select {
-				case <-readDone:
-				case <-time.After(10 * time.Millisecond):
-				}
-				// count done
-				select {
-				case <-readDone:
-				default:
-				}
-				break
-			}
-			_ = err
-			break loop
-		case <-ticker.C:
-		}
-		now := time.Now()
-		exited := cmd.ProcessState != nil
-		cancelledNow := ctx.Err() != nil
-		if cancelledNow {
-			cancelled = true
-		}
-		timedOutNow := !cancelled && now.Sub(start) >= timeout
-		if timedOutNow {
-			timedOut = true
-		}
-		if stopAt.IsZero() {
-			if cancelled || timedOut || exited {
-				if cancelled || timedOut || exited {
-					groupSignal(syscall.SIGTERM)
-					stopAt = now
-				}
-			}
-		} else {
-			if now.Sub(stopAt) >= termGrace && !killed {
-				groupSignal(syscall.SIGKILL)
-				killed = true
-			}
-			if killed && exited {
-				break loop
-			}
-			if now.Sub(stopAt) >= termGrace+drainGrace {
-				break loop
-			}
-		}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case waitErr = <-waitCh:
+	case <-ctx.Done():
+		cancelled = true
+	case <-timer.C:
+		cancelled = ctx.Err() != nil
+		timedOut = !cancelled
 	}
-
-	// ensure kill
+	if cancelled || timedOut {
+		groupSignal(syscall.SIGTERM)
+		grace := time.NewTimer(termGrace)
+		select {
+		case waitErr = <-waitCh:
+		case <-grace.C:
+			groupSignal(syscall.SIGKILL)
+			waitErr = <-waitCh
+		}
+		grace.Stop()
+	}
+	// Also clean up descendants when the shell exits without waiting for them.
 	groupSignal(syscall.SIGKILL)
-	stdoutPipe.Close()
-	stderrPipe.Close()
 
-	// wait for readers
-	for i := 0; i < 2; i++ {
+	// Count both readers, then join them even if inherited pipes remain open.
+	// Only after the join is it safe to read their buffers.
+	drainTimer := time.NewTimer(drainGrace)
+	defer drainTimer.Stop()
+	for remaining := 2; remaining > 0; {
 		select {
 		case <-readDone:
-		case <-time.After(drainGrace):
+			remaining--
+		case <-drainTimer.C:
+			stdoutPipe.Close()
+			stderrPipe.Close()
+			for ; remaining > 0; remaining-- {
+				<-readDone
+			}
 		}
 	}
 

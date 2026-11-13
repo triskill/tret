@@ -9,35 +9,11 @@
                   targetNamespace="http://bpmn.io/schema/bpmn"
                   exporter="tret"
                   exporterVersion="1.0">
-  <bpmn:process id="agent_loop" name="Agent Chat Loop" isExecutable="true">
+  <bpmn:process id="agent_loop" name="Agent Loop" isExecutable="true">
     <bpmn:startEvent id="StartEvent_1" name="Start">
       <bpmn:outgoing>Flow_Start_Reply</bpmn:outgoing>
     </bpmn:startEvent>
     <bpmn:sequenceFlow id="Flow_Start_Reply" sourceRef="StartEvent_1" targetRef="Task_Reply" />
-
-    <bpmn:serviceTask id="Task_Decide" name="Decide">
-      <bpmn:extensionElements>
-        <zenbpm:taskDefinition type="agent-decide" retries="3" retryBackoff="PT10S" />
-        <zenbpm:taskHeaders>
-          <zenbpm:header key="system_prompt" value="You are a helpful chat assistant. Reply concisely." />
-        </zenbpm:taskHeaders>
-        <zenbpm:ioMapping>
-          <zenbpm:output source="=assistant_text" target="assistant_text" />
-          <zenbpm:output source="=context" target="context" />
-        </zenbpm:ioMapping>
-      </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Reply_Decide</bpmn:incoming>
-      <bpmn:outgoing>Flow_Decide_Gateway</bpmn:outgoing>
-    </bpmn:serviceTask>
-    <bpmn:sequenceFlow id="Flow_Decide_Gateway" sourceRef="Task_Decide" targetRef="Gateway_Route" />
-
-    <bpmn:exclusiveGateway id="Gateway_Route" name="Route" default="Flow_Reply">
-      <bpmn:incoming>Flow_Decide_Gateway</bpmn:incoming>
-      <bpmn:outgoing>Flow_Reply</bpmn:outgoing>
-      <bpmn:outgoing>Flow_Fail</bpmn:outgoing>
-    </bpmn:exclusiveGateway>
-
-    <bpmn:sequenceFlow id="Flow_Reply" name="reply" sourceRef="Gateway_Route" targetRef="Task_Reply" />
 
     <bpmn:userTask id="Task_Reply" name="Reply">
       <bpmn:extensionElements>
@@ -46,65 +22,186 @@
           <zenbpm:output source="=user_message" target="user_message" />
         </zenbpm:ioMapping>
       </bpmn:extensionElements>
-      <bpmn:incoming>Flow_Reply</bpmn:incoming>
       <bpmn:incoming>Flow_Start_Reply</bpmn:incoming>
+      <bpmn:incoming>Flow_Reply</bpmn:incoming>
       <bpmn:outgoing>Flow_Reply_Decide</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:sequenceFlow id="Flow_Reply_Decide" sourceRef="Task_Reply" targetRef="Task_Decide" />
+    <bpmn:sequenceFlow id="Flow_Reply_Decide" sourceRef="Task_Reply" targetRef="Task_BudgetDecide" />
 
+    <bpmn:serviceTask id="Task_BudgetDecide" name="Budget: decide">
+      <bpmn:extensionElements>
+        <zenbpm:taskDefinition type="agent-budget" retries="3" retryBackoff="PT10S" />
+        <zenbpm:taskHeaders><zenbpm:header key="phase" value="decide" /></zenbpm:taskHeaders>
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=budget_allowed" target="budget_allowed" />
+          <zenbpm:output source="=model_turns" target="model_turns" />
+          <zenbpm:output source="=tool_calls" target="tool_calls" />
+          <zenbpm:output source="=run_started_at" target="run_started_at" />
+          <zenbpm:output source="=error_message" target="error_message" />
+        </zenbpm:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Reply_Decide</bpmn:incoming>
+      <bpmn:incoming>Flow_Execution_Continue</bpmn:incoming>
+      <bpmn:outgoing>Flow_BudgetDecide_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_BudgetDecide_Gateway" sourceRef="Task_BudgetDecide" targetRef="Gateway_BudgetDecide" />
+    <bpmn:exclusiveGateway id="Gateway_BudgetDecide" name="Allowed?" default="Flow_BudgetDecide_Denied">
+      <bpmn:incoming>Flow_BudgetDecide_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_BudgetDecide_Allowed</bpmn:outgoing>
+      <bpmn:outgoing>Flow_BudgetDecide_Denied</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_BudgetDecide_Allowed" sourceRef="Gateway_BudgetDecide" targetRef="Task_Decide">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=budget_allowed = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_BudgetDecide_Denied" sourceRef="Gateway_BudgetDecide" targetRef="Task_FailReport" />
+
+    <bpmn:serviceTask id="Task_BudgetExecute" name="Budget: execute">
+      <bpmn:extensionElements>
+        <zenbpm:taskDefinition type="agent-budget" retries="3" retryBackoff="PT10S" />
+        <zenbpm:taskHeaders><zenbpm:header key="phase" value="execute" /></zenbpm:taskHeaders>
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=budget_allowed" target="budget_allowed" />
+          <zenbpm:output source="=model_turns" target="model_turns" />
+          <zenbpm:output source="=tool_calls" target="tool_calls" />
+          <zenbpm:output source="=run_started_at" target="run_started_at" />
+          <zenbpm:output source="=error_message" target="error_message" />
+        </zenbpm:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_Tool</bpmn:incoming>
+      <bpmn:outgoing>Flow_BudgetExecute_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_BudgetExecute_Gateway" sourceRef="Task_BudgetExecute" targetRef="Gateway_BudgetExecute" />
+    <bpmn:exclusiveGateway id="Gateway_BudgetExecute" name="Allowed?" default="Flow_BudgetExecute_Denied">
+      <bpmn:incoming>Flow_BudgetExecute_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_BudgetExecute_Allowed</bpmn:outgoing>
+      <bpmn:outgoing>Flow_BudgetExecute_Denied</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_BudgetExecute_Allowed" sourceRef="Gateway_BudgetExecute" targetRef="Task_Execute">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=budget_allowed = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_BudgetExecute_Denied" sourceRef="Gateway_BudgetExecute" targetRef="Task_FailReport" />
+
+    <bpmn:exclusiveGateway id="Gateway_Execution" name="Result saved?" default="Flow_Execution_Continue">
+      <bpmn:incoming>Flow_Execute_Decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_Execution_Continue</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Execution_Failed</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_Execution_Continue" sourceRef="Gateway_Execution" targetRef="Task_BudgetDecide" />
+    <bpmn:sequenceFlow id="Flow_Execution_Failed" sourceRef="Gateway_Execution" targetRef="Task_FailReport">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=execution_error = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:serviceTask id="Task_Decide" name="Decide">
+      <bpmn:extensionElements>
+        <zenbpm:taskDefinition type="agent-decide" retries="1" />
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=route" target="route" />
+          <zenbpm:output source="=run_outcome" target="run_outcome" />
+          <zenbpm:output source="=command" target="command" />
+          <zenbpm:output source="=assistant_text" target="assistant_text" />
+          <zenbpm:output source="=error_message" target="error_message" />
+          <zenbpm:output source="=user_message" target="user_message" />
+          <zenbpm:output source="=context" target="context" />
+        </zenbpm:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_BudgetDecide_Allowed</bpmn:incoming>
+      <bpmn:outgoing>Flow_Decide_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_Decide_Gateway" sourceRef="Task_Decide" targetRef="Gateway_Route" />
+
+    <bpmn:exclusiveGateway id="Gateway_Route" name="Route" default="Flow_Reply">
+      <bpmn:incoming>Flow_Decide_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_Reply</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Tool</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Finish</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Fail</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:sequenceFlow id="Flow_Reply" name="message" sourceRef="Gateway_Route" targetRef="Task_Reply" />
+    <bpmn:sequenceFlow id="Flow_Tool" name="tool" sourceRef="Gateway_Route" targetRef="Task_BudgetExecute">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "tool"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Finish" name="finish" sourceRef="Gateway_Route" targetRef="EndSuccess">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "finish"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_Fail" name="fail" sourceRef="Gateway_Route" targetRef="Task_FailReport">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "fail"</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
+
+    <bpmn:serviceTask id="Task_Execute" name="Execute">
+      <bpmn:extensionElements>
+        <zenbpm:taskDefinition type="agent-execute" retries="1" />
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=context" target="context" />
+          <zenbpm:output source="=exit_code" target="exit_code" />
+          <zenbpm:output source="=execution_error" target="execution_error" />
+          <zenbpm:output source="=error_message" target="error_message" />
+          <zenbpm:output source="=command" target="command" />
+        </zenbpm:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_BudgetExecute_Allowed</bpmn:incoming>
+      <bpmn:outgoing>Flow_Execute_Decide</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_Execute_Decide" sourceRef="Task_Execute" targetRef="Gateway_Execution" />
+
     <bpmn:serviceTask id="Task_FailReport" name="Fail Report">
       <bpmn:extensionElements>
         <zenbpm:taskDefinition type="agent-fail-report" retries="3" retryBackoff="PT10S" />
+        <zenbpm:ioMapping>
+          <zenbpm:output source="=run_outcome" target="run_outcome" />
+        </zenbpm:ioMapping>
         <zenbpm:taskHeaders>
           <zenbpm:header key="pass_error_message_to_context" value="true" />
         </zenbpm:taskHeaders>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Fail</bpmn:incoming>
+      <bpmn:incoming>Flow_BudgetDecide_Denied</bpmn:incoming>
+      <bpmn:incoming>Flow_BudgetExecute_Denied</bpmn:incoming>
+      <bpmn:incoming>Flow_Execution_Failed</bpmn:incoming>
+      <bpmn:outgoing>Flow_FailReport_End</bpmn:outgoing>
     </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_FailReport_End" sourceRef="Task_FailReport" targetRef="EndFailure" />
+
+    <bpmn:endEvent id="EndSuccess" name="Finished">
+      <bpmn:incoming>Flow_Finish</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="EndFailure" name="Failed">
+      <bpmn:incoming>Flow_FailReport_End</bpmn:incoming>
+    </bpmn:endEvent>
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="agent_loop">
-      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
-        <dc:Bounds x="100" y="120" width="36" height="36" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_Decide_di" bpmnElement="Task_Decide">
-        <dc:Bounds x="180" y="98" width="120" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Gateway_Route_di" bpmnElement="Gateway_Route" isMarkerVisible="true">
-        <dc:Bounds x="360" y="113" width="50" height="50" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_Reply_di" bpmnElement="Task_Reply">
-        <dc:Bounds x="470" y="98" width="120" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_FailReport_di" bpmnElement="Task_FailReport">
-        <dc:Bounds x="335" y="220" width="120" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Flow_Start_Reply_di" bpmnElement="Flow_Start_Reply">
-        <di:waypoint x="136" y="138" />
-        <di:waypoint x="180" y="138" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_Decide_Gateway_di" bpmnElement="Flow_Decide_Gateway">
-        <di:waypoint x="300" y="138" />
-        <di:waypoint x="360" y="138" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_Reply_di" bpmnElement="Flow_Reply">
-        <di:waypoint x="410" y="138" />
-        <di:waypoint x="470" y="138" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_Reply_Decide_di" bpmnElement="Flow_Reply_Decide">
-        <di:waypoint x="530" y="98" />
-        <di:waypoint x="530" y="60" />
-        <di:waypoint x="240" y="60" />
-        <di:waypoint x="240" y="98" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_Fail_di" bpmnElement="Flow_Fail">
-        <di:waypoint x="385" y="163" />
-        <di:waypoint x="385" y="220" />
-      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1"><dc:Bounds x="40" y="152" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Reply_di" bpmnElement="Task_Reply"><dc:Bounds x="120" y="130" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_BudgetDecide_di" bpmnElement="Task_BudgetDecide"><dc:Bounds x="300" y="130" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_BudgetDecide_di" bpmnElement="Gateway_BudgetDecide"><dc:Bounds x="470" y="145" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Decide_di" bpmnElement="Task_Decide"><dc:Bounds x="580" y="130" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Route_di" bpmnElement="Gateway_Route"><dc:Bounds x="760" y="145" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndSuccess_di" bpmnElement="EndSuccess"><dc:Bounds x="900" y="152" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_BudgetExecute_di" bpmnElement="Task_BudgetExecute"><dc:Bounds x="730" y="310" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_BudgetExecute_di" bpmnElement="Gateway_BudgetExecute"><dc:Bounds x="630" y="325" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Execute_di" bpmnElement="Task_Execute"><dc:Bounds x="450" y="310" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Execution_di" bpmnElement="Gateway_Execution"><dc:Bounds x="330" y="325" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_FailReport_di" bpmnElement="Task_FailReport"><dc:Bounds x="950" y="470" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndFailure_di" bpmnElement="EndFailure"><dc:Bounds x="1120" y="492" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_Start_Reply_di" bpmnElement="Flow_Start_Reply"><di:waypoint x="76" y="170" /><di:waypoint x="120" y="170" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Reply_Decide_di" bpmnElement="Flow_Reply_Decide"><di:waypoint x="240" y="170" /><di:waypoint x="300" y="170" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BudgetDecide_Gateway_di" bpmnElement="Flow_BudgetDecide_Gateway"><di:waypoint x="420" y="170" /><di:waypoint x="470" y="170" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BudgetDecide_Allowed_di" bpmnElement="Flow_BudgetDecide_Allowed"><di:waypoint x="520" y="170" /><di:waypoint x="580" y="170" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BudgetDecide_Denied_di" bpmnElement="Flow_BudgetDecide_Denied"><di:waypoint x="495" y="195" /><di:waypoint x="495" y="440" /><di:waypoint x="1010" y="440" /><di:waypoint x="1010" y="470" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BudgetExecute_Gateway_di" bpmnElement="Flow_BudgetExecute_Gateway"><di:waypoint x="730" y="350" /><di:waypoint x="680" y="350" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BudgetExecute_Allowed_di" bpmnElement="Flow_BudgetExecute_Allowed"><di:waypoint x="630" y="350" /><di:waypoint x="570" y="350" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BudgetExecute_Denied_di" bpmnElement="Flow_BudgetExecute_Denied"><di:waypoint x="655" y="375" /><di:waypoint x="655" y="420" /><di:waypoint x="970" y="420" /><di:waypoint x="970" y="470" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Execution_Continue_di" bpmnElement="Flow_Execution_Continue"><di:waypoint x="355" y="325" /><di:waypoint x="355" y="210" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Execution_Failed_di" bpmnElement="Flow_Execution_Failed"><di:waypoint x="355" y="375" /><di:waypoint x="355" y="570" /><di:waypoint x="1010" y="570" /><di:waypoint x="1010" y="550" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Decide_Gateway_di" bpmnElement="Flow_Decide_Gateway"><di:waypoint x="700" y="170" /><di:waypoint x="760" y="170" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Reply_di" bpmnElement="Flow_Reply"><di:waypoint x="785" y="145" /><di:waypoint x="785" y="60" /><di:waypoint x="180" y="60" /><di:waypoint x="180" y="130" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Tool_di" bpmnElement="Flow_Tool"><di:waypoint x="785" y="195" /><di:waypoint x="785" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Finish_di" bpmnElement="Flow_Finish"><di:waypoint x="810" y="170" /><di:waypoint x="900" y="170" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Fail_di" bpmnElement="Flow_Fail"><di:waypoint x="810" y="170" /><di:waypoint x="1100" y="170" /><di:waypoint x="1100" y="510" /><di:waypoint x="1070" y="510" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Execute_Decide_di" bpmnElement="Flow_Execute_Decide"><di:waypoint x="450" y="350" /><di:waypoint x="380" y="350" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_FailReport_End_di" bpmnElement="Flow_FailReport_End"><di:waypoint x="1070" y="510" /><di:waypoint x="1120" y="510" /></bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>
