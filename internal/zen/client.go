@@ -176,26 +176,38 @@ func (c *Client) GetInstance(key int64) (*Instance, error) {
 }
 
 func (c *Client) ListJobs(processInstanceKey int64) ([]Job, error) {
-	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/process-instances/%d/jobs", c.BaseURL, processInstanceKey))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list jobs failed: %s: %s", resp.Status, string(b))
-	}
-	var wrap struct {
-		Items []Job `json:"items"`
-	}
-	if err := json.Unmarshal(b, &wrap); err == nil {
-		return wrap.Items, nil
-	}
 	var jobs []Job
-	if err := json.Unmarshal(b, &jobs); err != nil {
-		return nil, fmt.Errorf("parse jobs: %w", err)
+	for page := 1; ; page++ {
+		resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/process-instances/%d/jobs?page=%d", c.BaseURL, processInstanceKey, page))
+		if err != nil {
+			return nil, err
+		}
+		b, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("list jobs failed: %s: %s", resp.Status, string(b))
+		}
+		var wrap struct {
+			Items      []Job `json:"items"`
+			Page       int   `json:"page"`
+			Size       int   `json:"size"`
+			TotalCount int   `json:"totalCount"`
+		}
+		if err := json.Unmarshal(b, &wrap); err != nil {
+			var items []Job
+			if err := json.Unmarshal(b, &items); err != nil {
+				return nil, fmt.Errorf("parse jobs: %w", err)
+			}
+			return append(jobs, items...), nil
+		}
+		jobs = append(jobs, wrap.Items...)
+		if len(wrap.Items) == 0 || wrap.Size == 0 || wrap.Page*wrap.Size >= wrap.TotalCount {
+			return jobs, nil
+		}
 	}
-	return jobs, nil
 }
 
 type Incident struct {

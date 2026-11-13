@@ -106,6 +106,8 @@ func TestAgentLoopLive(t *testing.T) {
 		transcript         []string
 	}{
 		{name: "message_reply_finish", responses: []brain.Response{{Content: "Please reply"}, finish}, replies: []string{"first input", "second input"}, limits: defaults, outcome: "success", turns: 2, transcript: []string{"first input", "Please reply", "second input", "all done"}},
+		{name: "many_replies", responses: []brain.Response{{Content: "Please reply"}, {Content: "Please reply"}, {Content: "Please reply"}, {Content: "Please reply"}, finish}, replies: []string{"one", "two", "three", "four", "five"}, limits: defaults, outcome: "success", turns: 5},
+		{name: "interactive_finish_then_next_request", responses: []brain.Response{finish, {Content: `{"route":"fail","error":"session test done"}`}}, replies: []string{"first request", "another request"}, limits: defaults, initial: map[string]any{"interactive": true}, outcome: "failure", errorText: "session test done", turns: 2, transcript: []string{"first request", "another request", "all done"}},
 		{name: "tool_then_decide_finish", responses: []brain.Response{tool, finish}, replies: []string{"run tool"}, limits: defaults, outcome: "success", turns: 2, tools: 1, transcript: []string{"stdout:\nintegration-tool", "all done"}},
 		{name: "execution_evidence_failure", responses: []brain.Response{tool}, replies: []string{"run tool"}, limits: defaults, initial: map[string]any{"break_execution_evidence": true}, outcome: "failure", errorText: "execution outcome could not be saved; do not retry command", turns: 1, tools: 1},
 		{name: "explicit_failure", responses: []brain.Response{{Content: `{"route":"fail","error":"deliberate failure"}`}}, replies: []string{"fail"}, limits: defaults, outcome: "failure", errorText: "deliberate failure", turns: 1, transcript: []string{"ERROR: deliberate failure"}},
@@ -139,8 +141,14 @@ func TestAgentLoopLive(t *testing.T) {
 			var previousReply int64
 			for i, reply := range tc.replies {
 				job := awaitReply(t, client, key, previousReply)
-				if i > 0 && job.InputVariables["assistant_text"] != "Please reply" {
-					t.Fatalf("reply did not receive assistant text: %#v", job.InputVariables)
+				if i > 0 {
+					want := "Please reply"
+					if tc.initial["interactive"] == true {
+						want = "all done"
+					}
+					if job.InputVariables["assistant_text"] != want {
+						t.Fatalf("reply did not receive assistant text: %#v", job.InputVariables)
+					}
 				}
 				previousReply = job.Key
 				if err := client.CompleteJob(job.Key, map[string]any{"user_message": reply}); err != nil {

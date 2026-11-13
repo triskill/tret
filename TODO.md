@@ -31,7 +31,7 @@ was discussed and agreed; changing one means editing this file first, then the c
 | D11 | Retries | Per-node `zenbpm:taskDefinition`: budget checks may retry; decide and execute use one attempt to avoid automatic replay of model calls or side effects. Transport redelivery remains possible; exactly-once execution is not guaranteed |
 | D12 | Loop guard | BPMN schedules a server budget-check worker before every model/tool call and routes denial to failure. Counters and start time live in process variables; server limits default to 24 / 12 / 900s. Wall clock is checked at step boundaries (not a timer while waiting for a human). Engine's 10 000-flow-node guard stays as backstop |
 | D13 | Python tree | [zenbpm-harness](https://github.com/triskill/zenbpm-harness) stays a read-only behavioural reference: verified ZenBPM v1.9 adapter quirks, executor rules, tests to port. No cross imports; this tree stands alone |
-| D14 | Route vocabulary | `{tool, message, finish, fail}` only — the Python `correct` route is dropped |
+| D14 | Route vocabulary | `{tool, message, finish, fail}` only — the Python `correct` route is dropped. In interactive CLI sessions, `finish` completes the current request and BPMN returns to Reply; finite runs end. `/exit` terminates the session. |
 
 ## 2. Engine facts this design leans on (checked in this machine's engine source)
 

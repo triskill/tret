@@ -50,7 +50,7 @@ func executeAgent(args []string, input io.Reader, output io.Writer) error {
 		fmt.Fprintf(output, "attached to instance %d (businessKey=%s)\n", instanceKey, bk)
 	} else {
 		bk = fmt.Sprintf("run-%d", time.Now().UnixNano())
-		instanceKey, err = zc.StartInstance(def.Key, bk, map[string]any{"business_key": bk})
+		instanceKey, err = zc.StartInstance(def.Key, bk, map[string]any{"business_key": bk, "interactive": true})
 		if err != nil {
 			return err
 		}
@@ -61,6 +61,7 @@ func executeAgent(args []string, input io.Reader, output io.Writer) error {
 	goalPending := *goal != ""
 
 	scanner := bufio.NewScanner(input)
+	completedReplies := make(map[int64]bool)
 	for {
 		inst, err := zc.GetInstance(instanceKey)
 		if err != nil {
@@ -84,7 +85,7 @@ func executeAgent(args []string, input io.Reader, output io.Writer) error {
 		}
 		handled := false
 		for _, j := range jobs {
-			if j.State == "active" && j.Type == "agent-reply" {
+			if j.State == "active" && j.Type == "agent-reply" && !completedReplies[j.Key] {
 				if at, ok := j.InputVariables["assistant_text"].(string); ok && at != "" {
 					fmt.Fprintf(output, "Assistant: %s\n", at)
 				}
@@ -94,6 +95,7 @@ func executeAgent(args []string, input io.Reader, output io.Writer) error {
 					if err := zc.CompleteJob(j.Key, map[string]any{"user_message": *goal}); err != nil {
 						return fmt.Errorf("complete reply job %d: %w", j.Key, err)
 					}
+					completedReplies[j.Key] = true
 					handled = true
 					continue
 				}
@@ -112,6 +114,7 @@ func executeAgent(args []string, input io.Reader, output io.Writer) error {
 				if err := zc.CompleteJob(j.Key, map[string]any{"user_message": text}); err != nil {
 					return fmt.Errorf("complete reply job %d: %w", j.Key, err)
 				}
+				completedReplies[j.Key] = true
 				handled = true
 			}
 		}

@@ -45,7 +45,9 @@ make run-server CONFIG=config.yaml       # terminal 1: deploys + serves workers
 make run-agent GOAL="Say hi"             # terminal 2: chat with the run
 ```
 
-In the agent prompt, `/exit` cancels the run. Re-attach later with
+Interactive CLI sessions return to Reply after each finished request, so you
+can ask another question. Budgets cover the whole session. `/exit` cancels the
+run. Re-attach an active session later with
 `make run-agent ARGS="-continue run-<businessKey>"`.
 
 No model at hand? `make e2e` runs the whole stack against a mock LLM that
@@ -85,6 +87,9 @@ variables; the server evaluates limits and BPMN routes exhaustion to failure.
 The wall-clock budget starts at the first model-budget check and is checked at
 step boundaries, not while waiting for human input. Completed instances carry
 `run_outcome: success|failure` because both BPMN end events complete normally.
+For CLI sessions (`interactive: true`), BPMN routes `finish` back to Reply
+instead; it means the current request is done, not that the session is closed.
+Other clients keep finite-run behavior when `interactive` is absent or false.
 
 Model and command jobs have one attempt to avoid automatic retries of side
 effects. Engine redelivery is still possible; execution is not exactly-once.
@@ -100,6 +105,19 @@ Live process tests (requires the Compose engine):
 make up
 TRET_INTEGRATION=1 go test -v ./internal/integration
 ```
+
+A separate opt-in acceptance test uses a real model and temporary workspace:
+
+```sh
+TRET_MODEL_TEST=1 TRET_MODEL=qwen3:4b go test -v -run TestAgentLoopRealModel ./internal/integration
+```
+
+Use a dedicated engine with no other `agent-*` workers. The model must already
+be installed. `TRET_MODEL_BASE` defaults to `http://localhost:11434/v1`;
+`TRET_MODEL_API_KEY` enables authenticated endpoints. This runs local bash
+commands without a sandbox; the temporary workspace is isolation for test
+files, not a security boundary. Provider failures fail the test rather than
+falling back to a mock.
 
 ## License
 

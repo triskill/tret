@@ -24,6 +24,7 @@
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Start_Reply</bpmn:incoming>
       <bpmn:incoming>Flow_Reply</bpmn:incoming>
+      <bpmn:incoming>Flow_Finish_Reply</bpmn:incoming>
       <bpmn:outgoing>Flow_Reply_Decide</bpmn:outgoing>
     </bpmn:userTask>
     <bpmn:sequenceFlow id="Flow_Reply_Decide" sourceRef="Task_Reply" targetRef="Task_BudgetDecide" />
@@ -121,7 +122,7 @@
     <bpmn:sequenceFlow id="Flow_Tool" name="tool" sourceRef="Gateway_Route" targetRef="Task_BudgetExecute">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "tool"</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_Finish" name="finish" sourceRef="Gateway_Route" targetRef="EndSuccess">
+    <bpmn:sequenceFlow id="Flow_Finish" name="finish" sourceRef="Gateway_Route" targetRef="Gateway_Finish">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=route = "finish"</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_Fail" name="fail" sourceRef="Gateway_Route" targetRef="Task_FailReport">
@@ -162,8 +163,18 @@
     </bpmn:serviceTask>
     <bpmn:sequenceFlow id="Flow_FailReport_End" sourceRef="Task_FailReport" targetRef="EndFailure" />
 
-    <bpmn:endEvent id="EndSuccess" name="Finished">
+    <bpmn:exclusiveGateway id="Gateway_Finish" name="Interactive session?" default="Flow_Finish_End">
       <bpmn:incoming>Flow_Finish</bpmn:incoming>
+      <bpmn:outgoing>Flow_Finish_Reply</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Finish_End</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_Finish_Reply" name="next request" sourceRef="Gateway_Finish" targetRef="Task_Reply">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=interactive = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Finish_End" sourceRef="Gateway_Finish" targetRef="EndSuccess" />
+
+    <bpmn:endEvent id="EndSuccess" name="Finished">
+      <bpmn:incoming>Flow_Finish_End</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:endEvent id="EndFailure" name="Failed">
       <bpmn:incoming>Flow_FailReport_End</bpmn:incoming>
@@ -178,7 +189,8 @@
       <bpmndi:BPMNShape id="Gateway_BudgetDecide_di" bpmnElement="Gateway_BudgetDecide"><dc:Bounds x="470" y="145" width="50" height="50" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_Decide_di" bpmnElement="Task_Decide"><dc:Bounds x="580" y="130" width="120" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_Route_di" bpmnElement="Gateway_Route"><dc:Bounds x="760" y="145" width="50" height="50" /></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="EndSuccess_di" bpmnElement="EndSuccess"><dc:Bounds x="900" y="152" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Finish_di" bpmnElement="Gateway_Finish"><dc:Bounds x="900" y="145" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndSuccess_di" bpmnElement="EndSuccess"><dc:Bounds x="1040" y="152" width="36" height="36" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_BudgetExecute_di" bpmnElement="Task_BudgetExecute"><dc:Bounds x="730" y="310" width="120" height="80" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_BudgetExecute_di" bpmnElement="Gateway_BudgetExecute"><dc:Bounds x="630" y="325" width="50" height="50" /></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_Execute_di" bpmnElement="Task_Execute"><dc:Bounds x="450" y="310" width="120" height="80" /></bpmndi:BPMNShape>
@@ -199,6 +211,8 @@
       <bpmndi:BPMNEdge id="Flow_Reply_di" bpmnElement="Flow_Reply"><di:waypoint x="785" y="145" /><di:waypoint x="785" y="60" /><di:waypoint x="180" y="60" /><di:waypoint x="180" y="130" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_Tool_di" bpmnElement="Flow_Tool"><di:waypoint x="785" y="195" /><di:waypoint x="785" y="310" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_Finish_di" bpmnElement="Flow_Finish"><di:waypoint x="810" y="170" /><di:waypoint x="900" y="170" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Finish_Reply_di" bpmnElement="Flow_Finish_Reply"><di:waypoint x="925" y="145" /><di:waypoint x="925" y="30" /><di:waypoint x="180" y="30" /><di:waypoint x="180" y="130" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Finish_End_di" bpmnElement="Flow_Finish_End"><di:waypoint x="950" y="170" /><di:waypoint x="1040" y="170" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_Fail_di" bpmnElement="Flow_Fail"><di:waypoint x="810" y="170" /><di:waypoint x="1100" y="170" /><di:waypoint x="1100" y="510" /><di:waypoint x="1070" y="510" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_Execute_Decide_di" bpmnElement="Flow_Execute_Decide"><di:waypoint x="450" y="350" /><di:waypoint x="380" y="350" /></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_FailReport_End_di" bpmnElement="Flow_FailReport_End"><di:waypoint x="1070" y="510" /><di:waypoint x="1120" y="510" /></bpmndi:BPMNEdge>
