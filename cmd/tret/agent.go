@@ -28,9 +28,11 @@ func executeAgent(args []string, input io.Reader, output io.Writer) error {
 	goal := fs.String("goal", "", "goal of a new run (passed as the initial user message)")
 	continueKey := fs.String("continue", "", "business key of existing run to attach to")
 	engineURL := fs.String("engine", "http://localhost:8080", "engine REST URL")
-	workspace := fs.String("workspace", ".", "workspace dir")
+	workspace := fs.String("workspace", "", "unsupported: configure server -workspace instead")
 	fs.Parse(args)
-	_ = workspace // tool execution happens server-side in the workspace; reserved for render state
+	if *workspace != "" {
+		return fmt.Errorf("agent -workspace does not select execution directory; configure server -workspace instead")
+	}
 
 	zc := zen.NewClient(*engineURL)
 	def, err := zc.GetLatestProcessDefinition("agent_loop")

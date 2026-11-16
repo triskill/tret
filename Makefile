@@ -1,5 +1,6 @@
 ENGINE ?= http://localhost:8080
 CONFIG ?= config.example.yaml
+BPMN ?= bpmn/agent_loop.bpmn
 GOAL ?=
 ARGS ?=
 .PHONY: up down build test run run-agent run-server deploy e2e
@@ -27,7 +28,7 @@ run-agent:
 	go run ./cmd/tret agent -goal "$(GOAL)" -engine "$(ENGINE)" $(ARGS)
 
 deploy:
-	go run ./cmd/tret server
+	go run ./cmd/tret deploy -file "$(BPMN)" -engine "$(ENGINE)"
 
 e2e: up
 	@BIN=$$(mktemp -d); \

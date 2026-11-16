@@ -17,7 +17,10 @@ type Limits struct {
 // CheckBudget performs one BPMN step. The process persists its counters and
 // routes budget_allowed; this worker never dispatches another worker.
 func (s *Server) CheckBudget(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
-	vars := varsOf(job)
+	vars, inputErr := checkedVars(job)
+	if inputErr != nil {
+		return nil, inputErr
+	}
 	now := time.Now().Unix()
 	started := number(vars["run_started_at"])
 	if started == 0 {

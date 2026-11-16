@@ -7,6 +7,22 @@ import (
 	"testing"
 )
 
+func TestToolkitConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := "deploy_agent: false\nworkers: llm-call-v1\nmodel_profiles:\n  reviewer:\n    base_url: http://provider/v1\n    model: review-model\n    api_key: secret\n"
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got := FromFlags([]string{"-config", path})
+	p := got.ModelProfiles["reviewer"]
+	if got.DeployAgent || got.Workers != "llm-call-v1" || p.BaseURL != "http://provider/v1" || p.Model != "review-model" || p.APIKey != "secret" {
+		t.Fatalf("unexpected toolkit config: %+v", got)
+	}
+	if !FromFlags([]string{"-config", path, "-deploy-agent=true"}).DeployAgent {
+		t.Fatal("explicit deployment flag ignored")
+	}
+}
+
 func TestFromFlagsDefaults(t *testing.T) {
 	if got := FromFlags(nil); !reflect.DeepEqual(got, defaults()) {
 		t.Fatalf("FromFlags(nil) = %+v, want %+v", got, defaults())
@@ -22,7 +38,9 @@ func TestFromFlagsOverrides(t *testing.T) {
 		"--max-tool-calls", "5", "--max-model-turns", "6", "--wall-clock", "7",
 	}
 	want := &Config{
-		EngineREST: "http://engine:8080", EngineGRPC: "engine:9090",
+		DeployAgent: true,
+		Workers:     defaults().Workers,
+		EngineREST:  "http://engine:8080", EngineGRPC: "engine:9090",
 		StateDir: "./state", Workspace: "./workspace", Model: "test-model",
 		APIKey: "test-key", APIBase: "http://api/v1", OllamaBase: "http://ollama/v1",
 		MaxToolCalls: 5, MaxModelTurns: 6, WallClockSec: 7,

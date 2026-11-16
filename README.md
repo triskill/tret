@@ -2,10 +2,36 @@
 
 [![CI](https://github.com/triskill/tret/actions/workflows/ci.yaml/badge.svg)](https://github.com/triskill/tret/actions/workflows/ci.yaml)
 
-An AI agent whose control loop is an **executable BPMN process**, not hidden
-control flow. [ZenBPM](https://github.com/pbinitiative/zenbpm) (the workflow
-engine) creates every job and routes every turn; tret supplies the LLM
-decision worker, durable run state, and the human-facing CLI.
+A small toolkit for **BPMN-driven AI harnesses**, with a bundled coding-agent
+example. [ZenBPM](https://github.com/pbinitiative/zenbpm) owns scheduling and
+transitions; tret supplies a one-call LLM worker, process deployment/start commands,
+and the example agent workers and CLI. New application workers can run separately.
+
+## Build another harness
+
+```sh
+# Serve only the generic worker; do not deploy the bundled agent.
+tret server -config config.yaml -deploy-agent=false -workers llm-call-v1
+
+# In another terminal, deploy any supported executable BPMN and start it.
+tret deploy -file examples/classifier/classifier.bpmn
+tret start -process request_classifier -variables examples/classifier/variables.json
+```
+
+`deploy` prints the definition key. Use `start -definition KEY` to pin an exact
+version instead of selecting the latest with `-process`. Both commands accept
+`-engine URL`; `start` also accepts `-business-key`. They do not assume agent
+variables or automatically wait for a human task.
+
+The [classifier example](examples/classifier/README.md) includes its separate
+custom worker and full run instructions. The core server does not know that
+worker's job type. See [worker contracts](docs/workers.md) for LLM inputs/outputs,
+errors, limits, delivery semantics, and how to add a worker.
+
+`llm-call-v1` makes one model call: optional tools and validated JSON-schema output,
+no hidden loop, conversation state, routing, or tool execution. Named model
+profiles in server config keep endpoints and credentials out of process variables.
+The default profile uses the existing model/API configuration.
 
 ## Topology
 
@@ -22,8 +48,8 @@ decision worker, durable run state, and the human-facing CLI.
 ```
 
 - **`tret server`** subcommand deploys the embedded `agent_loop` process at
-  startup (idempotent), registers gRPC job workers (`agent-decide`,
-  `agent-fail-report`), calls the LLM, and owns durable context state under
+  startup by default (idempotent), registers selected gRPC job workers (including
+  `llm-call-v1` and the example `agent-*` workers), and owns agent context state under
   `--state-dir`.
 - **`tret agent`** subcommand (the default, so bare `tret` works) is what you
   run in a working directory: it starts a run (or attaches with `-continue`)
@@ -61,7 +87,7 @@ run from any folder (the engine must be reachable):
 ```sh
 go install github.com/triskill/tret/cmd/tret@latest
 
-tret server -config config.yaml    # worker daemon, one per engine
+tret server -config config.yaml    # worker daemon, one per selected worker configuration
 tret -goal "work on this repo"     # agent CLI; bare 'tret' == 'tret agent'
 ```
 
@@ -93,10 +119,12 @@ Other clients keep finite-run behavior when `interactive` is absent or false.
 
 Model and command jobs have one attempt to avoid automatic retries of side
 effects. Engine redelivery is still possible; execution is not exactly-once.
-Conversation state is JSONL; SQLite, output spill, and context-window bounds
-remain unfinished. The executor runs commands locally with the server's
-permissions; it is not a security sandbox. `agent -workspace` does not select
-the execution directory: configure the server's workspace instead.
+Conversation state is bounded JSONL (1 MiB / 100 entries, fail rather than
+truncate). SQLite, output spill, and token-aware context selection remain unfinished.
+New transcripts use instance-scoped hashed filenames and private file permissions.
+Old business-key transcript files are not migrated; start fresh runs after upgrading. The executor runs commands locally with the server's
+permissions; it is not a security sandbox. `agent -workspace` is rejected;
+configure the server's workspace instead.
 See [TODO.md](TODO.md) for remaining work.
 
 Live process tests (requires the Compose engine):

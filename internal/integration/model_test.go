@@ -120,7 +120,7 @@ func TestAgentLoopRealModel(t *testing.T) {
 			t.Fatal(err)
 		}
 		if inst.State == "completed" {
-			transcript, err := store.Load(bk)
+			transcript, err := store.Load(fmt.Sprintf("instance-%d", key))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -152,7 +152,7 @@ func TestAgentLoopRealModel(t *testing.T) {
 		}
 		for _, pending := range jobs {
 			if pending.Type == "agent-reply" && pending.State == "active" && pending.Key != job.Key {
-				transcript, _ := store.Load(bk)
+				transcript, _ := store.Load(fmt.Sprintf("instance-%d", key))
 				t.Fatalf("model requested human input instead of finishing: job=%#v\ntranscript:\n%s", pending, transcript)
 			}
 		}
@@ -166,7 +166,7 @@ func TestAgentLoopRealModel(t *testing.T) {
 		select {
 		case <-tick.C:
 		case <-ctx.Done():
-			transcript, _ := store.Load(bk)
+			transcript, _ := store.Load(fmt.Sprintf("instance-%d", key))
 			jobs, _ := client.ListJobs(key)
 			t.Fatalf("180s deadline: instance=%#v jobs=%#v\ntranscript:\n%s", inst, jobs, transcript)
 		}

@@ -115,3 +115,13 @@ func TestListJobsLaterPageError(t *testing.T) {
 		})
 	}
 }
+
+func TestMalformedEngineURL(t *testing.T) {
+	c := NewClient("://bad")
+	if _, err := c.StartInstance(1, "", nil); err == nil {
+		t.Fatal("malformed start URL accepted")
+	}
+	if err := c.CompleteJob(1, nil); err == nil {
+		t.Fatal("malformed completion URL accepted")
+	}
+}

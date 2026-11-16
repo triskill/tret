@@ -1,10 +1,5 @@
-// Command tret is the single entry point.
-//
-//	tret server [flags]   worker daemon: deploys the agent_loop process,
-//	                      serves decide/fail-report jobs, owns durable state
-//	tret agent [flags]    workspace-facing CLI: start or attach to a run,
-//	                      answer its agent-reply user tasks
-//	tret [flags]          same as 'tret agent [flags]'
+// Command tret hosts reusable BPMN workers and deploys/starts processes.
+// The default agent command is the bundled interactive coding-agent example.
 package main
 
 import (
@@ -13,14 +8,16 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `tret — an AI agent whose control loop is an executable BPMN process
+	fmt.Fprintf(os.Stderr, `tret — a toolkit for BPMN-driven AI harnesses
 
 Usage:
-  tret server [flags]   run the worker daemon (deploys, decides, owns state)
+  tret server [flags]   host selected workers (optional bundled agent deployment)
   tret agent [flags]    chat CLI: start/attach to a run, answer its user tasks (default)
+  tret deploy [flags]   deploy a BPMN file and print its definition key
+  tret start [flags]    start a process and print its instance key
   tret [flags]          same as 'tret agent [flags]'
 
-Run 'tret server -h' or 'tret agent -h' for subcommand flags.
+Run 'tret <command> -h' for subcommand flags.
 `)
 }
 
@@ -33,6 +30,12 @@ func main() {
 			return
 		case "agent":
 			runAgent(args[1:])
+			return
+		case "deploy":
+			runDeploy(args[1:])
+			return
+		case "start":
+			runStart(args[1:])
 			return
 		case "-h", "--help", "help":
 			usage()

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"time"
 )
 
 type Client struct {
@@ -14,7 +16,7 @@ type Client struct {
 }
 
 func NewClient(baseURL string) *Client {
-	return &Client{BaseURL: baseURL, HTTPClient: &http.Client{}}
+	return &Client{BaseURL: baseURL, HTTPClient: &http.Client{Timeout: 15 * time.Second}}
 }
 
 type DeployResult struct {
@@ -57,7 +59,7 @@ type processDefinitionsPage struct {
 // process with the given BPMN process id, or an error if none is deployed.
 func (c *Client) GetLatestProcessDefinition(bpmnProcessID string) (*ProcessDefinition, error) {
 	req, err := http.NewRequest(http.MethodGet,
-		c.BaseURL+"/v1/process-definitions?bpmnProcessId="+bpmnProcessID+"&onlyLatest=true", nil)
+		c.BaseURL+"/v1/process-definitions?bpmnProcessId="+url.QueryEscape(bpmnProcessID)+"&onlyLatest=true", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +96,14 @@ func (c *Client) StartInstance(processDefinitionKey int64, businessKey string, v
 		"businessKey":          businessKey,
 		"variables":            variables,
 	}
-	b, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, c.BaseURL+"/v1/process-instances", bytes.NewReader(b))
+	b, err := json.Marshal(body)
+	if err != nil {
+		return 0, fmt.Errorf("encode instance variables: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/v1/process-instances", bytes.NewReader(b))
+	if err != nil {
+		return 0, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -122,7 +130,7 @@ type Instance struct {
 }
 
 func (c *Client) GetInstanceByBusinessKey(businessKey string) (*Instance, error) {
-	resp, err := c.HTTPClient.Get(c.BaseURL + "/v1/process-instances?businessKey=" + businessKey)
+	resp, err := c.HTTPClient.Get(c.BaseURL + "/v1/process-instances?businessKey=" + url.QueryEscape(businessKey))
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +256,14 @@ type OutcomeError struct {
 func (e *OutcomeError) Error() string { return e.Kind + ": " + e.Message }
 
 func (c *Client) CompleteJob(jobKey int64, variables map[string]any) error {
-	b, _ := json.Marshal(map[string]any{"variables": variables})
-	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/v1/jobs/%d/complete", c.BaseURL, jobKey), bytes.NewReader(b))
+	b, err := json.Marshal(map[string]any{"variables": variables})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/v1/jobs/%d/complete", c.BaseURL, jobKey), bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

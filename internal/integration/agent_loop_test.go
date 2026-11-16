@@ -109,7 +109,7 @@ func TestAgentLoopLive(t *testing.T) {
 		{name: "many_replies", responses: []brain.Response{{Content: "Please reply"}, {Content: "Please reply"}, {Content: "Please reply"}, {Content: "Please reply"}, finish}, replies: []string{"one", "two", "three", "four", "five"}, limits: defaults, outcome: "success", turns: 5},
 		{name: "interactive_finish_then_next_request", responses: []brain.Response{finish, {Content: `{"route":"fail","error":"session test done"}`}}, replies: []string{"first request", "another request"}, limits: defaults, initial: map[string]any{"interactive": true}, outcome: "failure", errorText: "session test done", turns: 2, transcript: []string{"first request", "another request", "all done"}},
 		{name: "tool_then_decide_finish", responses: []brain.Response{tool, finish}, replies: []string{"run tool"}, limits: defaults, outcome: "success", turns: 2, tools: 1, transcript: []string{"stdout:\nintegration-tool", "all done"}},
-		{name: "execution_evidence_failure", responses: []brain.Response{tool}, replies: []string{"run tool"}, limits: defaults, initial: map[string]any{"break_execution_evidence": true}, outcome: "failure", errorText: "execution outcome could not be saved; do not retry command", turns: 1, tools: 1},
+		{name: "execution_evidence_failure", responses: []brain.Response{tool}, replies: []string{"run tool"}, limits: defaults, initial: map[string]any{"break_execution_evidence": true}, outcome: "failure", errorText: "read conversation before execution", turns: 1, tools: 1},
 		{name: "explicit_failure", responses: []brain.Response{{Content: `{"route":"fail","error":"deliberate failure"}`}}, replies: []string{"fail"}, limits: defaults, outcome: "failure", errorText: "deliberate failure", turns: 1, transcript: []string{"ERROR: deliberate failure"}},
 		{name: "model_budget", responses: []brain.Response{tool}, replies: []string{"loop"}, limits: server.Limits{MaxModelTurns: 1, MaxToolCalls: 8, WallClockSec: 60}, outcome: "failure", errorText: "model-turn budget exhausted", turns: 1, tools: 1},
 		{name: "tool_budget", responses: []brain.Response{tool, tool}, replies: []string{"loop"}, limits: server.Limits{MaxModelTurns: 8, MaxToolCalls: 1, WallClockSec: 60}, outcome: "failure", errorText: "tool-call budget exhausted", turns: 2, tools: 1},
@@ -173,7 +173,7 @@ func TestAgentLoopLive(t *testing.T) {
 			if inst.Variables["user_message"] != "" && tc.turns > 0 {
 				t.Errorf("stale user_message: %v", inst.Variables["user_message"])
 			}
-			transcript, err := store.Load(bk)
+			transcript, err := store.Load(fmt.Sprintf("instance-%d", key))
 			if tc.initial["break_execution_evidence"] == true {
 				if inst.Variables["execution_error"] != true {
 					t.Errorf("execution_error=%v, want true", inst.Variables["execution_error"])

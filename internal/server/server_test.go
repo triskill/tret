@@ -182,7 +182,7 @@ func TestStoreFailureStopsDecisionAndExecutionLoop(t *testing.T) {
 		t.Fatalf("%v", out)
 	}
 	out, _ = s.Execute(context.Background(), jobWithVars(`{"command":"printf hello"}`))
-	if out["execution_error"] != true || !strings.Contains(out["error_message"].(string), "do not retry") {
+	if out["execution_error"] != true || !strings.Contains(out["error_message"].(string), "before execution") {
 		t.Fatalf("%v", out)
 	}
 }
@@ -196,5 +196,45 @@ func TestExplicitRunOutcomes(t *testing.T) {
 	out, _ = s.FailReport(context.Background(), jobWithVars(`{"error_message":"failed"}`))
 	if out["run_outcome"] != "failure" {
 		t.Fatalf("%v", out)
+	}
+}
+
+func TestContextIdentityAndInvalidVariables(t *testing.T) {
+	key := int64(42)
+	job := jobWithVars(`{"business_key":"reused"}`)
+	job.InstanceKey = &key
+	if got := contextKey(map[string]any{"business_key": "reused"}, job); got != "instance-42" {
+		t.Fatalf("context identity=%s", got)
+	}
+	s := newTestServer(t, &fakeLLM{})
+	for _, raw := range []string{`null`, `[]`, `{`} {
+		for _, handler := range []zen.WorkerFunc{s.Decide, s.Execute, s.FailReport, s.CheckBudget} {
+			_, err := handler(context.Background(), jobWithVars(raw))
+			if err == nil || err.ErrorCode != "invalid_input" {
+				t.Fatalf("input=%s error=%v", raw, err)
+			}
+		}
+	}
+}
+
+func TestCorruptHistoryStopsBeforeCommand(t *testing.T) {
+	s := newTestServer(t, &fakeLLM{})
+	if err := s.Context.Append("corrupt", "user", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := filepath.Glob(filepath.Join(s.Context.Dir, "contexts", "*.jsonl"))
+	if err != nil || len(paths) != 1 {
+		t.Fatalf("paths=%v err=%v", paths, err)
+	}
+	if err := os.WriteFile(paths[0], []byte("not json\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(s.Runner.WorkspaceRoot, "should-not-exist")
+	out, werr := s.Execute(context.Background(), jobWithVars(`{"business_key":"corrupt","command":"touch should-not-exist"}`))
+	if werr != nil || out["execution_error"] != true {
+		t.Fatalf("out=%v error=%v", out, werr)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("command ran despite corrupt history: %v", err)
 	}
 }

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zenbpm="http://zenbpm.pbinitiative.org/1.0" id="ClassifierDefinitions" targetNamespace="http://tret/examples">
+ <bpmn:process id="request_classifier" name="Request classifier" isExecutable="true">
+  <bpmn:startEvent id="Start"><bpmn:outgoing>ToClassify</bpmn:outgoing></bpmn:startEvent>
+  <bpmn:sequenceFlow id="ToClassify" sourceRef="Start" targetRef="Classify" />
+  <bpmn:serviceTask id="Classify" name="Classify request">
+   <bpmn:extensionElements>
+    <zenbpm:taskDefinition type="llm-call-v1" retries="1" />
+    <zenbpm:ioMapping>
+     <zenbpm:input source="=request" target="llm_request" />
+     <zenbpm:output source="=llm_result" target="classification" />
+    </zenbpm:ioMapping>
+   </bpmn:extensionElements>
+   <bpmn:incoming>ToClassify</bpmn:incoming><bpmn:outgoing>ToRoute</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:sequenceFlow id="ToRoute" sourceRef="Classify" targetRef="Route" />
+  <bpmn:exclusiveGateway id="Route" name="Accepted?">
+   <bpmn:incoming>ToRoute</bpmn:incoming>
+   <bpmn:outgoing>Accepted</bpmn:outgoing><bpmn:outgoing>Denied</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:sequenceFlow id="Accepted" sourceRef="Route" targetRef="Report"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=classification.structured_output.approved = true</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Denied" sourceRef="Route" targetRef="EndDenied"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=classification.structured_output.approved = false</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:serviceTask id="Report" name="Application report">
+   <bpmn:extensionElements>
+    <zenbpm:taskDefinition type="example-report-v1" retries="1" />
+    <zenbpm:taskHeaders><zenbpm:header key="queue" value="accepted" /></zenbpm:taskHeaders>
+    <zenbpm:ioMapping>
+     <zenbpm:input source="=classification" target="classification" />
+     <zenbpm:output source="=report" target="report" />
+     <zenbpm:output source="=queue" target="queue" />
+    </zenbpm:ioMapping>
+   </bpmn:extensionElements>
+   <bpmn:incoming>Accepted</bpmn:incoming><bpmn:outgoing>Reported</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:sequenceFlow id="Reported" sourceRef="Report" targetRef="EndAccepted" />
+  <bpmn:endEvent id="EndAccepted" name="Accepted"><bpmn:incoming>Reported</bpmn:incoming></bpmn:endEvent>
+  <bpmn:endEvent id="EndDenied" name="Denied"><bpmn:incoming>Denied</bpmn:incoming></bpmn:endEvent>
+ </bpmn:process>
+ <bpmndi:BPMNDiagram id="ClassifierDiagram"><bpmndi:BPMNPlane id="ClassifierPlane" bpmnElement="request_classifier">
+  <bpmndi:BPMNShape id="Start_di" bpmnElement="Start"><dc:Bounds x="40" y="140" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Classify_di" bpmnElement="Classify"><dc:Bounds x="120" y="118" width="120" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Route_di" bpmnElement="Route"><dc:Bounds x="300" y="133" width="50" height="50" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Report_di" bpmnElement="Report"><dc:Bounds x="420" y="30" width="120" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="EndAccepted_di" bpmnElement="EndAccepted"><dc:Bounds x="620" y="52" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="EndDenied_di" bpmnElement="EndDenied"><dc:Bounds x="440" y="140" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNEdge id="ToClassify_di" bpmnElement="ToClassify"><di:waypoint x="76" y="158" /><di:waypoint x="120" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="ToRoute_di" bpmnElement="ToRoute"><di:waypoint x="240" y="158" /><di:waypoint x="300" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Accepted_di" bpmnElement="Accepted"><di:waypoint x="325" y="133" /><di:waypoint x="325" y="70" /><di:waypoint x="420" y="70" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Denied_di" bpmnElement="Denied"><di:waypoint x="350" y="158" /><di:waypoint x="440" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Reported_di" bpmnElement="Reported"><di:waypoint x="540" y="70" /><di:waypoint x="620" y="70" /></bpmndi:BPMNEdge>
+ </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>

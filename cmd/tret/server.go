@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
@@ -14,17 +17,25 @@ import (
 	"github.com/triskill/tret/internal/executor"
 	"github.com/triskill/tret/internal/server"
 	"github.com/triskill/tret/internal/zen"
+	"github.com/triskill/tret/pkg/llm"
+	"github.com/triskill/tret/pkg/worker"
 )
 
-// runServer is the worker daemon: it deploys the embedded agent_loop process
-// (idempotent), registers gRPC job workers for decide/fail-report, and owns
-// durable run state.
+// runServer hosts selected built-in workers. Bundled agent deployment is optional;
+// arbitrary BPMN and external workers have independent lifecycles.
 func runServer(args []string) {
 	cfg := config.FromFlags(args)
-	runner, err := executor.NewRunner(cfg.Workspace)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	var runner *executor.Runner
+	for _, typ := range strings.Split(cfg.Workers, ",") {
+		if strings.TrimSpace(typ) == "agent-execute" {
+			var err error
+			runner, err = executor.NewRunner(cfg.Workspace)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			break
+		}
 	}
 	// One OpenAI-compatible client serves both provider tiers: api_key
 	// set → api_base (OpenAI/OpenRouter/...); empty → local Ollama /v1.
@@ -32,19 +43,43 @@ func runServer(args []string) {
 	if cfg.APIKey == "" {
 		base = cfg.OllamaBase
 	}
-	var llm brain.LLMProvider = brain.NewOpenAICompat(base, cfg.Model, cfg.APIKey)
+	var agentLLM brain.LLMProvider = brain.NewOpenAICompat(base, cfg.Model, cfg.APIKey)
 	if os.Getenv("MOCK_LLM") == "1" {
-		llm = &brain.FinishLLM{}
+		agentLLM = &brain.FinishLLM{}
 	}
 	ctxStore := contextstore.New(cfg.StateDir)
-	srv := server.New(llm, runner, ctxStore)
+	srv := server.New(agentLLM, runner, ctxStore)
 	srv.Limits = server.Limits{MaxToolCalls: cfg.MaxToolCalls, MaxModelTurns: cfg.MaxModelTurns, WallClockSec: cfg.WallClockSec}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	profiles := make(map[string]llm.Profile, len(cfg.ModelProfiles)+1)
+	for name, profile := range cfg.ModelProfiles {
+		profiles[name] = profile
+	}
+	if _, ok := profiles["default"]; !ok {
+		profiles["default"] = llm.Profile{BaseURL: base, Model: cfg.Model, APIKey: cfg.APIKey}
+	}
+	llmWorker := llm.NewWorker(profiles)
+	registry := worker.NewRegistry()
+	builtins := map[string]zen.WorkerFunc{
+		"agent-budget":      srv.CheckBudget,
+		"agent-decide":      srv.Decide,
+		"agent-execute":     srv.Execute,
+		"agent-fail-report": srv.FailReport,
+		"llm-call-v1":       llmWorker.Handle,
+	}
+	if err := registerSelected(registry, builtins, cfg.Workers); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	options := make([]zenclient.WorkerOption, 0, len(registry.Types()))
+	for _, typ := range registry.Types() {
+		options = append(options, zenclient.WithJobType(typ, zenclient.WithLockDuration(5*time.Minute)))
+	}
 	zc := zen.NewClient(cfg.EngineREST)
-	// A fresh compose stack takes a while to boot: retry the idempotent
-	// deploy and worker registration until the engine answers (60s cap).
 	deadline := time.Now().Add(60 * time.Second)
-	for {
+	for cfg.DeployAgent {
 		key, created, err := zc.Deploy(tret.AgentLoopBPMN)
 		if err == nil {
 			fmt.Printf("deployed agent_loop: key=%d newVersion=%v\n", key, created)
@@ -54,33 +89,23 @@ func runServer(args []string) {
 			fmt.Printf("deploy failed: %v\n", err)
 			os.Exit(1)
 		}
-		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
 	}
 
-	ctx := context.Background()
-	worker := func(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
-		if job != nil && job.Type != nil {
-			switch *job.Type {
-			case "agent-budget":
-				return srv.CheckBudget(ctx, job)
-			case "agent-execute":
-				return srv.Execute(ctx, job)
-			case "agent-fail-report":
-				return srv.FailReport(ctx, job)
-			}
-		}
-		return srv.Decide(ctx, job)
-	}
 	for {
 		conn, err := zen.DialGRPC(cfg.EngineGRPC)
 		if err == nil {
 			g := zen.NewGrpcClient(conn)
-			_, err = g.RegisterWorkerWithOptions(ctx, fmt.Sprintf("tret-server-%d", os.Getpid()), worker,
-				zenclient.WithJobType("agent-budget", zenclient.WithLockDuration(5*time.Minute)),
-				zenclient.WithJobType("agent-decide", zenclient.WithLockDuration(5*time.Minute)),
-				zenclient.WithJobType("agent-execute", zenclient.WithLockDuration(5*time.Minute)),
-				zenclient.WithJobType("agent-fail-report", zenclient.WithLockDuration(5*time.Minute)),
-			)
+			_, err = g.RegisterWorkerWithOptions(ctx, fmt.Sprintf("tret-server-%d", os.Getpid()), registry.Handle, options...)
+			if err == nil {
+				defer conn.Close()
+			} else {
+				conn.Close()
+			}
 		}
 		if err == nil {
 			break
@@ -90,10 +115,27 @@ func runServer(args []string) {
 			os.Exit(1)
 		}
 		fmt.Printf("waiting for engine gRPC (%v)\n", err)
-		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
 	}
 	fmt.Println("server running")
-	for {
-		time.Sleep(time.Hour)
+	<-ctx.Done()
+	fmt.Println("server stopping")
+}
+
+func registerSelected(registry *worker.Registry, builtins map[string]zen.WorkerFunc, selected string) error {
+	for _, typ := range strings.Split(selected, ",") {
+		typ = strings.TrimSpace(typ)
+		handler, ok := builtins[typ]
+		if !ok {
+			return fmt.Errorf("unknown built-in worker %q", typ)
+		}
+		if err := registry.Register(typ, handler); err != nil {
+			return err
+		}
 	}
+	return nil
 }

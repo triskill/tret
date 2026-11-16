@@ -28,20 +28,28 @@ func New(llm brain.LLMProvider, runner *executor.Runner, ctxStore *contextstore.
 	return &Server{LLM: llm, Runner: runner, Context: ctxStore, Limits: Limits{MaxToolCalls: 24, MaxModelTurns: 12, WallClockSec: 900}}
 }
 
-func varsOf(job *zen.WaitingJob) map[string]any {
-	v := map[string]any{}
-	if job != nil && len(job.InputVariables) > 0 {
-		_ = json.Unmarshal(job.InputVariables, &v)
+func checkedVars(job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
+	vars := map[string]any{}
+	if job == nil || len(job.InputVariables) == 0 {
+		return vars, nil
 	}
-	return v
+	err := json.Unmarshal(job.InputVariables, &vars)
+	if err == nil && vars != nil {
+		return vars, nil
+	}
+	if err == nil {
+		err = fmt.Errorf("job variables must be a JSON object")
+	}
+	zero := int32(0)
+	return nil, &zen.WorkerError{Err: err, ErrorCode: "invalid_input", Retries: &zero}
 }
 
 func contextKey(vars map[string]any, job *zen.WaitingJob) string {
-	if bk, ok := vars["business_key"].(string); ok && bk != "" {
-		return bk
-	}
 	if job != nil && job.InstanceKey != nil {
 		return fmt.Sprintf("instance-%d", *job.InstanceKey)
+	}
+	if bk, ok := vars["business_key"].(string); ok && bk != "" {
+		return bk
 	}
 	return "default"
 }
@@ -64,7 +72,10 @@ func (s *Server) systemPrompt(job *zen.WaitingJob, vars map[string]any) string {
 // returns the full variable set — including user_message cleared — so the
 // process scope never carries a stale value into the next turn.
 func (s *Server) Decide(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
-	vars := varsOf(job)
+	vars, inputErr := checkedVars(job)
+	if inputErr != nil {
+		return nil, inputErr
+	}
 	key := contextKey(vars, job)
 	out := map[string]any{
 		"route": "fail", "command": "", "assistant_text": "",
@@ -120,6 +131,9 @@ func (s *Server) Decide(ctx context.Context, job *zen.WaitingJob) (map[string]an
 	}
 	if text, err := s.Context.Load(key); err == nil {
 		out["context"] = text
+	} else {
+		out["route"], out["command"], out["run_outcome"] = "fail", "", ""
+		out["error_message"] = "read conversation: " + err.Error()
 	}
 	return out, nil
 }
@@ -130,9 +144,15 @@ func (s *Server) Decide(ctx context.Context, job *zen.WaitingJob) (map[string]an
 // Command problems (empty command, non-zero exit, timeout, launch failure)
 // reach the model as tool results; a lost transcript write stops the run.
 func (s *Server) Execute(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
-	vars := varsOf(job)
+	vars, inputErr := checkedVars(job)
+	if inputErr != nil {
+		return nil, inputErr
+	}
 	key := contextKey(vars, job)
 	command, _ := vars["command"].(string)
+	if _, err := s.Context.LoadEntries(key); err != nil {
+		return map[string]any{"command": "", "execution_error": true, "error_message": "read conversation before execution: " + err.Error()}, nil
+	}
 
 	var result string
 	exitCode := -1
@@ -152,6 +172,9 @@ func (s *Server) Execute(ctx context.Context, job *zen.WaitingJob) (map[string]a
 	}
 	if text, err := s.Context.Load(key); err == nil {
 		out["context"] = text
+	} else {
+		out["execution_error"] = true
+		out["error_message"] = "execution outcome could not be read; do not retry command: " + err.Error()
 	}
 	return out, nil
 }
@@ -180,7 +203,10 @@ func formatToolResult(command string, res *executor.RunResult) string {
 // FailReport is the agent-fail-report worker: logs the failure and, when
 // asked, appends it to the run's transcript.
 func (s *Server) FailReport(ctx context.Context, job *zen.WaitingJob) (map[string]any, *zen.WorkerError) {
-	vars := varsOf(job)
+	vars, inputErr := checkedVars(job)
+	if inputErr != nil {
+		return nil, inputErr
+	}
 	msg, _ := vars["error_message"].(string)
 	if msg == "" {
 		msg = "unknown failure"
@@ -188,14 +214,17 @@ func (s *Server) FailReport(ctx context.Context, job *zen.WaitingJob) (map[strin
 	fmt.Println("FAILURE:", msg)
 	key := contextKey(vars, job)
 	pass := false
-	if v, ok := job.Headers["pass_error_message_to_context"]; ok && (v == "true" || v == "True") {
+	if v, ok := job.GetHeaders()["pass_error_message_to_context"]; ok && (v == "true" || v == "True") {
 		pass = true
 	}
 	if pv, ok := vars["pass_error_message_to_context"].(bool); ok {
 		pass = pv
 	}
 	if pass {
-		_ = s.Context.Append(key, "system", "ERROR: "+msg)
+		if err := s.Context.Append(key, "system", "ERROR: "+msg); err != nil {
+			// Failure reporting must still complete when the transcript itself failed.
+			fmt.Println("FAILURE transcript:", err)
+		}
 	}
 	return map[string]any{"run_outcome": "failure"}, nil
 }

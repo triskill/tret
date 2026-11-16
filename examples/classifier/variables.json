@@ -1,0 +1,17 @@
+{
+  "request": {
+    "model_profile": "default",
+    "messages": [
+      {"role": "system", "content": "Approve harmless requests. Deny harmful requests. Return JSON with one boolean property approved."},
+      {"role": "user", "content": "Please write a friendly greeting."}
+    ],
+    "output_schema": {
+      "type": "object",
+      "properties": {"approved": {"type": "boolean"}},
+      "required": ["approved"],
+      "additionalProperties": false
+    },
+    "max_tokens": 100,
+    "temperature": 0
+  }
+}

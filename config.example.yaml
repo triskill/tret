@@ -1,3 +1,8 @@
+# Keep the bundled agent CLI working by default. For only generic LLM jobs:
+# deploy_agent: false
+# workers: llm-call-v1
+deploy_agent: true
+workers: agent-budget,agent-decide,agent-execute,agent-fail-report,llm-call-v1
 engine_rest: http://localhost:8080
 engine_grpc: localhost:9090
 state_dir: ./data
@@ -11,3 +16,11 @@ ollama_base: http://localhost:11434/v1
 max_tool_calls: 24
 max_model_turns: 12
 wall_clock_sec: 900
+
+# Named profiles for llm-call-v1. Credentials stay on the server.
+# The default profile falls back to the model/api_* settings above when omitted.
+# model_profiles:
+#   reviewer:
+#     base_url: http://localhost:11434/v1
+#     model: qwen3:4b
+#     api_key: ""

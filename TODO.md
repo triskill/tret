@@ -5,6 +5,20 @@ was discussed and agreed; changing one means editing this file first, then the c
 
 ---
 
+## Toolkit foundation (2026-11-16)
+
+The decisions below describe the bundled `agent_loop` example, not restrictions on
+all harnesses. In particular D1, D7, and D14 are application-specific. New generic
+work uses the [worker contracts](docs/workers.md). Historical checkboxes below may
+lag current code; they are not an authoritative feature inventory.
+
+- [x] Independent deploy/start commands for arbitrary BPMN and exact definition keys.
+- [x] Explicit worker registry and selectable built-in worker subscriptions.
+- [x] Stateless `llm-call-v1`: named profiles, optional tools, schema-validated output.
+- [x] Second classifier BPMN with a separately registered application worker.
+- [ ] Safe side-effect recovery/journal, sandboxing, bounded artifact storage.
+- [ ] Migrate legacy agent variables and textual conversation format to versioned contracts.
+
 ## 0. Shape of the thing
 
 | Piece | What it is |
@@ -64,18 +78,14 @@ Engine == [pbinitiative/zenbpm](https://github.com/pbinitiative/zenbpm) tag `v1.
   so handlers must tolerate a second delivery while still working → D8.
 - Incident `message` carries the reason (`"<error> (job <key>: 3 attempts, retries exhausted)"`).
 
-## 3. Known-broken baseline (clear this first)
+## 3. Baseline status
 
-- [x] `go build ./... && go vet ./...` fail: `cmd/orchestrator/main.go:11:6: main redeclared` (vs `main_dispatch.go`)
-- [x] `cmd/orchestrator/` is superseded by `cmd/server` (D3) — removed
-- [x] `go.mod` module path settled to `github.com/triskill/tret`; engine dep pinned to `github.com/pbinitiative/zenbpm v1.9.0` (no `replace`)
-- [ ] `bpmn/agent_loop.bpmn` has **no `zenbpm:taskDefinition`/ioMapping and no `bpmndi` block** ⇒ jobs get no type and zenbpm-ui shows nothing (D10)
-- [ ] `internal/api/client.go` `FetchInstruction` returns a hardcoded instruction — replace with real engine calls
-- [x] `internal/orchestrator/deployer.go` POSTs BPMN bytes via zen client and returns key
-- [x] `internal/executor/runner.go` ported to bash -lc process group runner (D6)
-- [ ] `internal/job_workers/dispatcher.go` mixes routing with `json.Unmarshal` of raw text, and `internal/brain/llm.go` parses decisions by substring → structured tool calls (P4)
-- [ ] `internal/brain/*` only knows Ollama + `MockLLM` → OPEN-4
-- [x] repo-root `session.json` was stale REPL chat data → untracked + gitignored; state belongs to the server (D5)
+The original broken skeleton is replaced. Current BPMN has task definitions,
+input/output mappings and DI. Structured native tool calls, the OpenAI-compatible
+provider, engine deployment, CLI user tasks, and the local executor are implemented.
+See README and tests for the current supported behavior. The historical work
+packages below are retained for context; unchecked boxes are not proof of absence.
+
 ## 4. Work packages
 
 ### P0 — honest skeleton (nothing pretending)

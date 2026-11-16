@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/pbinitiative/zenbpm v1.9.0
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	google.golang.org/grpc v1.85.0
 	gopkg.in/yaml.v3 v3.0.1
 )

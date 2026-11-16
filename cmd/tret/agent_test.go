@@ -175,3 +175,10 @@ func TestExecuteAgentFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentRejectsWorkspaceOverride(t *testing.T) {
+	var output bytes.Buffer
+	if err := executeAgent([]string{"-workspace", "/elsewhere"}, strings.NewReader(""), &output); err == nil {
+		t.Fatal("ignored workspace override")
+	}
+}
