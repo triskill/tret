@@ -9,9 +9,9 @@ import (
 )
 
 func TestRegisterSelectedWorkers(t *testing.T) {
-	builtin := map[string]zen.WorkerFunc{"llm-call-v1": func(context.Context, *zen.WaitingJob) (map[string]any, *zen.WorkerError) { return nil, nil }, "agent-execute": func(context.Context, *zen.WaitingJob) (map[string]any, *zen.WorkerError) { return nil, nil }}
+	builtin := map[string]zen.WorkerFunc{"llm-call-v1": func(context.Context, *zen.WaitingJob) (map[string]any, *zen.WorkerError) { return nil, nil }, "exec-command-v1": func(context.Context, *zen.WaitingJob) (map[string]any, *zen.WorkerError) { return nil, nil }}
 	r := worker.NewRegistry()
-	if err := registerSelected(r, builtin, " llm-call-v1 "); err != nil {
+	if err := registerSelected(r, builtin, "llm-call-v1"); err != nil {
 		t.Fatal(err)
 	}
 	if types := r.Types(); len(types) != 1 || types[0] != "llm-call-v1" {

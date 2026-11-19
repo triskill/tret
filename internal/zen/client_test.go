@@ -41,7 +41,7 @@ func TestCompleteJob(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewClient(srv.URL)
-	if err := c.CompleteJob(789, map[string]any{"route": "finish"}); err != nil {
+	if err := c.CompleteJob(789, map[string]any{"answer": "ok"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -63,9 +63,9 @@ func TestListJobsPagination(t *testing.T) {
 		const size = 10
 		var items []Job
 		for i := (page - 1) * size; i < page*size && i < total; i++ {
-			job := Job{Key: int64(i + 1), Type: "agent-decide", State: "completed"}
+			job := Job{Key: int64(i + 1), Type: "llm-call-v1", State: "completed"}
 			if i == total-1 {
-				job.Type, job.State = "agent-reply", "active"
+				job.Type, job.State = "user-reply", "active"
 				job.InputVariables = map[string]any{"assistant_text": "Please reply"}
 			}
 			items = append(items, job)
@@ -89,7 +89,7 @@ func TestListJobsPagination(t *testing.T) {
 		}
 	}
 	last := jobs[len(jobs)-1]
-	if last.Type != "agent-reply" || last.State != "active" || last.InputVariables["assistant_text"] != "Please reply" {
+	if last.Type != "user-reply" || last.State != "active" || last.InputVariables["assistant_text"] != "Please reply" {
 		t.Fatalf("missing active reply: %#v", last)
 	}
 }

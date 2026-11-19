@@ -1,9 +1,8 @@
 ENGINE ?= http://localhost:8080
 CONFIG ?= config.example.yaml
-BPMN ?= bpmn/agent_loop.bpmn
-GOAL ?=
-ARGS ?=
-.PHONY: up down build test run run-agent run-server deploy e2e
+BPMN ?=
+
+.PHONY: up down build test run run-server deploy
 
 up:
 	docker compose up -d
@@ -24,20 +23,6 @@ run: up
 run-server:
 	go run ./cmd/tret server $(if $(CONFIG),-config $(CONFIG),)
 
-run-agent:
-	go run ./cmd/tret agent -goal "$(GOAL)" -engine "$(ENGINE)" $(ARGS)
-
 deploy:
+	@test -n "$(BPMN)" || { echo "set BPMN=path/to/process.bpmn"; exit 2; }
 	go run ./cmd/tret deploy -file "$(BPMN)" -engine "$(ENGINE)"
-
-e2e: up
-	@BIN=$$(mktemp -d); \
-	trap 'kill $${SERVER_PID:-0} 2>/dev/null; rm -rf $$BIN' EXIT; \
-	go build -o $$BIN/tret ./cmd/tret || exit 1; \
-	MOCK_LLM=1 $$BIN/tret server > $$BIN/server.log 2>&1 & SERVER_PID=$$!; \
-	for i in $$(seq 1 60); do \
-		grep -q 'deployed agent_loop' $$BIN/server.log 2>/dev/null && break; \
-		sleep 1; \
-	done; \
-	grep -m1 'deployed agent_loop' $$BIN/server.log || { cat $$BIN/server.log; exit 1; }; \
-	printf '/exit\n' | $$BIN/tret agent -goal "echo hi" || { cat $$BIN/server.log; exit 1; }

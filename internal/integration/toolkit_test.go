@@ -160,3 +160,31 @@ func awaitToolkitIncident(t *testing.T, client *zen.Client, key int64) {
 		}
 	}
 }
+
+// awaitCompleted polls until the instance reaches the completed state.
+func awaitCompleted(t *testing.T, client *zen.Client, key int64) *zen.Instance {
+	t.Helper()
+	deadline := time.NewTimer(30 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		instance, err := client.GetInstance(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if instance.State == "failed" || instance.State == "terminated" {
+			incidents, _ := client.ListIncidents(key)
+			t.Fatalf("unexpected engine state %q: incidents=%#v", instance.State, incidents)
+		}
+		if instance.State == "completed" {
+			return instance
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			jobs, _ := client.ListJobs(key)
+			t.Fatalf("timed out waiting for instance %d: instance=%#v jobs=%#v", key, instance, jobs)
+		}
+	}
+}

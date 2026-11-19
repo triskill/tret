@@ -9,42 +9,33 @@ import (
 	"strings"
 
 	"github.com/triskill/tret/pkg/llm"
+	"github.com/triskill/tret/pkg/shellexec"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	// DeployAgent keeps the bundled agent available for the default CLI.
-	DeployAgent bool   `json:"deploy_agent" yaml:"deploy_agent"`
-	Workers     string `json:"workers" yaml:"workers"`
+	Workers string `json:"workers" yaml:"workers"`
 	// ModelProfiles are server-owned endpoints/credentials, never process variables.
 	ModelProfiles map[string]llm.Profile `json:"model_profiles" yaml:"model_profiles"`
 	EngineREST    string                 `json:"engine_rest" yaml:"engine_rest"`
 	EngineGRPC    string                 `json:"engine_grpc" yaml:"engine_grpc"`
-	StateDir      string                 `json:"state_dir" yaml:"state_dir"`
-	Workspace     string                 `json:"workspace" yaml:"workspace"`
-	Model         string                 `json:"model" yaml:"model"`
-	APIKey        string                 `json:"api_key" yaml:"api_key"`
-	APIBase       string                 `json:"api_base" yaml:"api_base"`
-	OllamaBase    string                 `json:"ollama_base" yaml:"ollama_base"`
-	MaxToolCalls  int                    `json:"max_tool_calls" yaml:"max_tool_calls"`
-	MaxModelTurns int                    `json:"max_model_turns" yaml:"max_model_turns"`
-	WallClockSec  int                    `json:"wall_clock_sec" yaml:"wall_clock_sec"`
+	// ExecRoot is the workspace directory exec-command-v1 jobs run in.
+	ExecRoot   string `json:"exec_root" yaml:"exec_root"`
+	Model      string `json:"model" yaml:"model"`
+	APIKey     string `json:"api_key" yaml:"api_key"`
+	APIBase    string `json:"api_base" yaml:"api_base"`
+	OllamaBase string `json:"ollama_base" yaml:"ollama_base"`
 }
 
 func defaults() *Config {
 	return &Config{
-		DeployAgent:   true,
-		Workers:       "agent-budget,agent-decide,agent-execute,agent-fail-report,llm-call-v1",
-		EngineREST:    "http://localhost:8080",
-		EngineGRPC:    "localhost:9090",
-		StateDir:      "./data",
-		Workspace:     ".",
-		Model:         "gpt-4o-mini",
-		APIBase:       "https://api.openai.com/v1",
-		OllamaBase:    "http://localhost:11434/v1",
-		MaxToolCalls:  24,
-		MaxModelTurns: 12,
-		WallClockSec:  900,
+		Workers:    strings.Join([]string{llm.JobType, shellexec.JobType}, ","),
+		EngineREST: "http://localhost:8080",
+		EngineGRPC: "localhost:9090",
+		ExecRoot:   ".",
+		Model:      "gpt-4o-mini",
+		APIBase:    "https://api.openai.com/v1",
+		OllamaBase: "http://localhost:11434/v1",
 	}
 }
 
@@ -74,19 +65,14 @@ func FromFlags(args []string) *Config {
 	fs := flag.NewFlagSet("main", flag.ExitOnError)
 	var configFile string
 	fs.StringVar(&cfg.Workers, "workers", cfg.Workers, "comma-separated built-in job types to serve")
-	fs.BoolVar(&cfg.DeployAgent, "deploy-agent", cfg.DeployAgent, "deploy the bundled agent_loop at startup (false for generic workers only)")
 	fs.StringVar(&configFile, "config", "", "config file (json/yaml)")
 	fs.StringVar(&cfg.EngineREST, "engine-rest", cfg.EngineREST, "engine REST URL")
 	fs.StringVar(&cfg.EngineGRPC, "engine-grpc", cfg.EngineGRPC, "engine gRPC URL")
-	fs.StringVar(&cfg.StateDir, "state-dir", cfg.StateDir, "state dir")
-	fs.StringVar(&cfg.Workspace, "workspace", cfg.Workspace, "workspace dir")
+	fs.StringVar(&cfg.ExecRoot, "exec-root", cfg.ExecRoot, "workspace directory for exec-command-v1 jobs")
 	fs.StringVar(&cfg.Model, "model", cfg.Model, "model")
 	fs.StringVar(&cfg.APIKey, "api-key", cfg.APIKey, "api key")
 	fs.StringVar(&cfg.APIBase, "api-base", cfg.APIBase, "OpenAI-compatible API base URL")
 	fs.StringVar(&cfg.OllamaBase, "ollama-base", cfg.OllamaBase, "Ollama API base URL")
-	fs.IntVar(&cfg.MaxToolCalls, "max-tool-calls", cfg.MaxToolCalls, "max tool calls")
-	fs.IntVar(&cfg.MaxModelTurns, "max-model-turns", cfg.MaxModelTurns, "max model turns")
-	fs.IntVar(&cfg.WallClockSec, "wall-clock", cfg.WallClockSec, "wall clock sec")
 	// Parse the complete flag set to find -config regardless of flag order.
 	fs.Parse(args)
 	if configFile != "" {

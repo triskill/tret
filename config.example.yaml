@@ -1,24 +1,19 @@
-# Keep the bundled agent CLI working by default. For only generic LLM jobs:
-# deploy_agent: false
-# workers: llm-call-v1
-deploy_agent: true
-workers: agent-budget,agent-decide,agent-execute,agent-fail-report,llm-call-v1
+# Workers this server registers. llm-call-v1 needs the model settings below;
+# exec-command-v1 needs exec_root below. List only what your processes use.
+workers: llm-call-v1,exec-command-v1
 engine_rest: http://localhost:8080
 engine_grpc: localhost:9090
-state_dir: ./data
-workspace: .
+# Workspace directory exec-command-v1 jobs run in.
+exec_root: .
 model: qwen3:4b
 api_key: ""
 # OpenAI-compatible endpoint, used when api_key is set:
 api_base: https://api.openai.com/v1
 # local Ollama OpenAI-compatible endpoint, used when api_key is empty:
 ollama_base: http://localhost:11434/v1
-max_tool_calls: 24
-max_model_turns: 12
-wall_clock_sec: 900
 
-# Named profiles for llm-call-v1. Credentials stay on the server.
-# The default profile falls back to the model/api_* settings above when omitted.
+# Named profiles for llm-call-v1. Credentials stay server-side.
+# The default profile falls back to the model/api_* settings above if omitted.
 # model_profiles:
 #   reviewer:
 #     base_url: http://localhost:11434/v1

@@ -1,7 +1,7 @@
 # One-call request classifier
 
-This process is independent of the agent loop. It makes one `llm-call-v1`
-completion, validates the response against a JSON Schema, and lets the BPMN
+This process references only generic platform capabilities. It makes one
+`llm-call-v1` completion, validates the response against a JSON Schema, and lets the BPMN
 gateway route on `classification.structured_output.approved`. Approved requests
 run the application-owned `example-report-v1` worker. Denied requests end without
 calling it. Invalid model output creates an incident; it is not a denial.
@@ -18,7 +18,7 @@ From the repository root, with Go and Docker Compose available:
 make up
 cp config.example.yaml config.yaml
 # Configure the model endpoint in config.yaml.
-go run ./cmd/tret server -config config.yaml -deploy-agent=false -workers llm-call-v1
+go run ./cmd/tret server -config config.yaml -workers llm-call-v1
 ```
 
 In another terminal, register only the application's custom worker:

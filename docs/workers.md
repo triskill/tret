@@ -2,23 +2,24 @@
 
 ## Ownership
 
-ZenBPM owns scheduling, gateways, waiting, and process variables. A worker performs
-one task and returns its result. Workers must not implement hidden agent loops.
-BPMN input/output mappings bind application variables to task-local contracts.
-Deploying BPMN does not install workers: each referenced job type must have a
-running subscriber. New workers can register directly through ZenBPM's job API;
-no tret server edit or plugin loader is needed. See `examples/classifier`.
+ZenBPM owns scheduling, gateways, waiting, and process variables. A worker
+performs one task and returns its result. Workers must not implement hidden
+agent loops. BPMN input/output mappings bind application variables to task
+contracts. Deploying BPMN does not install workers: each referenced job type
+must have a running subscriber. New workers register directly through ZenBPM's
+job API; no tret edit or plugin loader is needed. See `examples/classifier`.
 
-This POC assumes trusted process authors, private engine access, and trusted local
-users. Tool definitions request actions; they are not execution authorization.
-The generic LLM worker never runs tools. Keep model credentials in server config.
-Do not put secrets in workflow variables or task headers.
+This POC assumes trusted process authors, private engine access, and trusted
+local users. Tools request actions and workers execute them — a process that
+schedules `exec-command-v1` runs commands with the server's permissions. Keep
+model credentials in server config; do not put secrets in process variables or
+task headers.
 
 ## `llm-call-v1`
 
-One non-streaming OpenAI-compatible completion, no conversation storage, no route
-classification, no tool execution, no internal retry. It is safe to use independent
-calls in separate BPMN branches because there is no implicit shared history.
+One non-streaming OpenAI-compatible completion, no conversation storage, no
+tool execution, no internal retry. Independent calls in separate BPMN branches
+are safe because there is no implicit shared history.
 
 Input variable `llm_request`:
 
@@ -38,81 +39,78 @@ Input variable `llm_request`:
 ```
 
 Required: named `model_profile` and nonempty `messages`. Optional: native OpenAI
-`tools`, JSON `output_schema`, positive `max_tokens`, `temperature` in [0,2]. No
-tools are offered unless provided. The POC supports string content and text/image_url content parts (no media fetching
-by tret). Native message fields such as `tool_calls` and
-`tool_call_id` are retained. Unknown request fields are rejected. The profile name
-resolves a server-owned endpoint, model, and API key; input cannot override them.
+`tools`, JSON `output_schema`, positive `max_tokens`, `temperature` in [0,2].
+No tools are offered unless supplied. The POC supports string content and
+text/image_url content parts (no media fetching by tret). Native message fields
+such as `tool_calls` and `tool_call_id` are retained. Unknown request fields are
+rejected. The profile name resolves a server-owned endpoint, model, and API
+key; inputs can't override them.
 
-Output variable `llm_result`:
-
-```json
-{
-  "content": "{\"approved\":true}",
-  "structured_output": {"approved": true},
-  "tool_calls": [],
-  "finish_reason": "stop",
-  "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-  "model": "provider-model-id",
-  "request_id": "provider-request-id"
-}
-```
-
-`structured_output` is present only for schema requests, after local JSON Schema
-validation. External schema loading is disabled. The provider must support the
-OpenAI `response_format: json_schema` request; there is no silent fallback. A
-schema request whose response is a tool call without matching JSON content fails
-validation. Other calls return tool requests for BPMN to route to separate workers.
-Usage/model/IDs depend on provider metadata; missing fields are not fabricated.
-Responses larger than 8 MiB are rejected; the HTTP call timeout is 120 seconds.
-These are transport limits, not a context-selection policy or a per-run budget.
-Map only bounded inputs into each task; generic BPMNs must define their own call
-budgets rather than relying on the bundled agent's budget tasks.
+Output variable `llm_result` (`content`, `structured_output`, `tool_calls`,
+`finish_reason`, `usage`, `model`, `request_id`). `structured_output` appears
+only for schema requests after local JSON Schema validation; external schema
+loading is disabled. The provider must support the OpenAI `response_format:
+json_schema` request; there is no silent fallback. A schema response that is a
+tool call without matching JSON content fails validation. Other calls return
+tool calls for BPMN to route to separate workers. Usage/model/IDs depend on
+provider metadata; missing fields are not fabricated. Responses bigger than
+8 MiB are rejected; the HTTP call timeout is 120 s. These are transport limits,
+not per-process budget — BPMN owns budgets with its own counters and gateways.
 
 Failures use `invalid_input`, `provider_error`, or `invalid_output` WorkerError
-codes and zero remaining retries. ZenBPM can catch codes with BPMN error handlers;
-without a handler it creates an incident. These errors never become an agent
-`route`. HTTP non-success is a provider error; schema mismatch is invalid output.
+codes with zero retries. ZenBPM can catch these codes with BPMN error
+handlers; without a handler it creates an incident.
+
+## `exec-command-v1`
+
+One `bash -lc` command per job. Runs with the server's permissions in the
+server-configured `exec_root`; there is no sandbox and no environment beyond
+HOME/TMPDIR/LANG. Treat it as a tool the process deliberately invokes, not a
+security boundary.
+
+Input variable `exec_request`:
+
+```json
+{"command": "pytest -q", "timeout_sec": 60}
+```
+
+`command` is required (non-empty, no NUL, ≤ 16 KiB), `timeout_sec` optional in
+(0, 120], default 60. Unknown fields are rejected.
+
+Output variable `exec_result`:
+
+```json
+{"exit_code": 0, "stdout": "...", "stderr": "", "timed_out": false,
+ "cancelled": false, "truncated": false, "duration_ms": 412}
+```
+
+Exit codes, timeouts, and capped output (32 KiB per stream, `truncated` flag)
+are ordinary results for BPMN to route on; only request-validation problems are
+`invalid_input` worker errors. Commands run in their own process group with
+TERM→KILL escalation. One attempt plus possible redelivery means commands may
+run more than once; idempotent commands should carry their own dedup key.
 
 ## Authoring another worker
 
 1. Choose a versioned job type and document required inputs and outputs.
-2. Validate inputs before side effects. Publish outputs only through mappings.
+2. Validate inputs before side effects. Publish outputs only via mappings.
 3. Use normal result values for valid business outcomes, including rejection.
-4. Define technical error codes and whether BPMN catches them or stops at an incident.
-5. Declare side effects, replay behavior, time/resource limits, cancellation, and
-   which external credentials/permissions the worker needs.
-6. Register its type in a separate process using `zenclient.RegisterWorkerWithOptions`.
-   The public `pkg/worker.Registry` optionally provides explicit dispatch for a
+4. Define technical error codes and whether BPMN catches them or the process
+   stops at an incident.
+5. Declare side effects, replay behavior, time/resource limits, cancellation,
+   and which external credentials/permissions your worker needs.
+6. Register the type in a separate process using
+   `zenclient.RegisterWorkerWithOptions`. The public
+   `pkg/worker.Registry` provides optional explicit dispatch for a
    multi-type worker process. Configure it before serving; unknown types fail.
 
 ### Delivery and recovery
 
-One attempt does not guarantee one execution. Engine job redelivery remains
-possible, including during an existing attempt. LLM calls can be billed twice;
-shell commands can run twice. Idempotent workers should use an operation identity
-bound to the engine job and persist known results. Non-idempotent workers must
-stop for manual reconciliation when an outcome is unknown. This POC does not
-provide a journal, fencing, or automatic safe replay. Resolving an incident is an
-operator action, not a promise that rerunning a side effect is safe.
-
-## Bundled agent (application-specific)
-
-`agent-decide`, `agent-execute`, `agent-budget`, `agent-fail-report`, and human
-`agent-reply` belong to `bpmn/agent_loop.bpmn`. Their unversioned variables and
-`tool/message/finish/fail` vocabulary are legacy example contracts, not toolkit
-standards. `agent-decide` still uses textual conversation/tool summaries; native
-structured tool history is supported by `llm-call-v1`, not retrofitted here.
-The agent's shell runs with server permissions in one server workspace, not a
-sandbox or per-run filesystem. Selecting only `llm-call-v1` avoids registering the
-shell worker. Human tasks can be completed by other clients; `tret agent` only
-implements the bundled `agent-reply` interaction.
-
-Legacy agent transcripts are capped at 1 MiB and 100 entries. Reaching a bound or
-reading corrupt JSONL fails the run rather than silently trimming history. New
-transcripts use instance identity and SHA-256 filenames; business-key histories
-from older versions are not migrated. New directories/files use 0700/0600;
-existing permissions are not changed. A Store serializes its own appends, but
-multiple server processes sharing a state directory are unsupported. The engine
-REST client now uses a 15-second HTTP timeout. Failure reporting remains best
-effort if the transcript itself is unavailable, preserving the original failure.
+One attempt does not mean one execution. Engine job redelivery is still
+possible, including handing a second attempt of a job whose first attempt ran;
+an LLM call can be billed twice and a command can run twice. Idempotent workers
+should use an operation identity tied to the engine job and persist known
+results. Non-idempotent workers should stop for manual reconciliation on
+unknown outcomes. This POC provides no journal, fencing, or automatic safe
+replay. Resolving an incident is an operator action, not a guarantee that
+rerunning a side effect is safe.

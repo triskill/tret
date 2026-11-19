@@ -2,61 +2,58 @@
 
 [![CI](https://github.com/triskill/tret/actions/workflows/ci.yaml/badge.svg)](https://github.com/triskill/tret/actions/workflows/ci.yaml)
 
-A small toolkit for **BPMN-driven AI harnesses**, with a bundled coding-agent
-example. [ZenBPM](https://github.com/pbinitiative/zenbpm) owns scheduling and
-transitions; tret supplies a one-call LLM worker, process deployment/start commands,
-and the example agent workers and CLI. New application workers can run separately.
+A small platform for **BPMN-driven agent loops**.
+[ZenBPM](https://github.com/pbinitiative/zenbpm) owns scheduling and routing;
+tret deploys your BPMN files and hosts **generic job workers** — one-call LLM
+completions and shell commands — that any process can reference. A new loop is
+just a BPMN file: create or edit it, deploy it, done. No new Go code until you
+need a genuinely new capability.
 
-## Build another harness
+## How a loop works
+
+```
+ Your process.bpmn ──tret deploy──▶ zenbpm engine
+                                       │ gRPC jobs (jobType per task)
+                                       ▼
+ tret server ── llm-call-v1 ──▶ OpenAI-compatible endpoint
+              ── exec-command-v1 ─▶ bash -lc in the server's exec root
+ app worker (your code) ──▶ anything else your process references
+```
+
+- **`tret server`** (the default subcommand) registers the selected generic
+  workers over gRPC and streams jobs. It deploys nothing itself.
+- **`tret deploy -file process.bpmn`** prints the definition key.
+- **`tret start -process KEY_OR_ID -variables vars.json`** starts an instance.
+  `-definition` pins an exact version; `-business-key` is accepted.
+- Your own workers register directly against the engine (see the
+  [classifier example](examples/classifier/README.md)); the core does not
+  need to know their job types.
+
+Process-level logic — loops, budgets, routing on model output — belongs in the
+BPMN file (gateways and process variables), not in trev code. Human
+`userTask`s surface as ordinary jobs on the same engine API.
+
+## Generic workers
+
+`llm-call-v1` makes one model call: optional native tools, JSON-schema-validated
+`structured_output`, named server-side model profiles so credentials never
+travel in process variables. No hidden loop, no conversation state, no tool
+execution inside the worker.
+
+`exec-command-v1` runs one `bash -lc` command per job in the configured
+`exec_root` with capped output and a bounded timeout. Exit codes and timeouts
+are ordinary results for the process to route on; this is a tool, not a
+sandbox, and jobs are at-least-once — see the contract docs.
+
+Only the job types you select are registered:
 
 ```sh
-# Serve only the generic worker; do not deploy the bundled agent.
-tret server -config config.yaml -deploy-agent=false -workers llm-call-v1
-
-# In another terminal, deploy any supported executable BPMN and start it.
-tret deploy -file examples/classifier/classifier.bpmn
-tret start -process request_classifier -variables examples/classifier/variables.json
+tret server -config config.yaml                  # llm-call-v1 + exec-command-v1
+tret server -workers llm-call-v1                 # LLM only
 ```
 
-`deploy` prints the definition key. Use `start -definition KEY` to pin an exact
-version instead of selecting the latest with `-process`. Both commands accept
-`-engine URL`; `start` also accepts `-business-key`. They do not assume agent
-variables or automatically wait for a human task.
-
-The [classifier example](examples/classifier/README.md) includes its separate
-custom worker and full run instructions. The core server does not know that
-worker's job type. See [worker contracts](docs/workers.md) for LLM inputs/outputs,
-errors, limits, delivery semantics, and how to add a worker.
-
-`llm-call-v1` makes one model call: optional tools and validated JSON-schema output,
-no hidden loop, conversation state, routing, or tool execution. Named model
-profiles in server config keep endpoints and credentials out of process variables.
-The default profile uses the existing model/API configuration.
-
-## Topology
-
-```
-┌───────────────┐     REST (deploy/start/readback)    ┌──────────────┐
-│ tret server   │ ◀─────────────────────────────────▶ │ zenbpm       │
-│               │ ◀───────── gRPC JobStream ───────── │ engine       │
-│ · decide      │                                     └─────▲────────┘
-│ · fail report │                                           │ REST
-│ · context     │                                     ┌─────┴────────┐
-│   state       │                                     │ tret agent   │
-└───────────────┘                                     │ (your CLI)   │
-                                                      └──────────────┘
-```
-
-- **`tret server`** subcommand deploys the embedded `agent_loop` process at
-  startup by default (idempotent), registers selected gRPC job workers (including
-  `llm-call-v1` and the example `agent-*` workers), and owns agent context state under
-  `--state-dir`.
-- **`tret agent`** subcommand (the default, so bare `tret` works) is what you
-  run in a working directory: it starts a run (or attaches with `-continue`)
-  and completes the process's `agent-reply` user tasks with what you type. It
-  never talks to a model.
-- **`zenbpm-ui`** on <http://localhost:8081> lets you inspect instances,
-  tokens, jobs, and incidents.
+See [worker contracts](docs/workers.md) for exact job variables, error codes,
+limits, delivery semantics, and how to add a worker.
 
 ## Quick start
 
@@ -67,85 +64,29 @@ Ollama or an OpenAI-compatible API key.
 git clone git@github.com:triskill/tret.git && cd tret
 make up                                  # engine + UI containers
 cp config.example.yaml config.yaml       # edit model / api_key / api_base
-make run-server CONFIG=config.yaml       # terminal 1: deploys + serves workers
-make run-agent GOAL="Say hi"             # terminal 2: chat with the run
+make run-server                          # terminal 1: serves generic workers
+tret deploy -file examples/classifier/classifier.bpmn
+tret start -process request_classifier -variables examples/classifier/variables.json
 ```
 
-Interactive CLI sessions return to Reply after each finished request, so you
-can ask another question. Budgets cover the whole session. `/exit` cancels the
-run. Re-attach an active session later with
-`make run-agent ARGS="-continue run-<businessKey>"`.
+The [classifier example](examples/classifier/README.md) is a complete runnable
+loop — one LLM classification, an application-owned report worker, gateway
+routing — and shows a separate worker process alongside the platform.
 
-No model at hand? `make e2e` runs the whole stack against a mock LLM that
-immediately finishes — a smoke test of engine wiring, not of intelligence.
-
-## Install
-
-Make targets are just conveniences around one static binary; install it and
-run from any folder (the engine must be reachable):
-
-```sh
-go install github.com/triskill/tret/cmd/tret@latest
-
-tret server -config config.yaml    # worker daemon, one per selected worker configuration
-tret -goal "work on this repo"     # agent CLI; bare 'tret' == 'tret agent'
-```
-
-## Configuration
-
-`config.yaml` — see [config.example.yaml](config.example.yaml) for all keys.
-Server flags use dashes (`state_dir` → `-state-dir`); `wall_clock_sec`
-uses `-wall-clock`. Highlights:
-
-| key | meaning |
-|---|---|
-| `api_key` + `api_base` | non-empty key ⇒ OpenAI-compatible chat endpoint |
-| `ollama_base` | empty key ⇒ local Ollama |
-| `engine_rest` / `engine_grpc` | where the engine lives (`:8080` / `:9090`) |
-| `state_dir` | server's durable context store |
-| `max_tool_calls` / `max_model_turns` / `wall_clock_sec` | positive run budgets (24 / 12 / 900 by default) |
+Tests run against a live engine with `make up` plus `TRET_INTEGRATION=1 go test
+./internal/integration`; unit tests run everywhere. Real-model acceptance is
+opt-in per the example READMEs.
 
 ## Status
 
-Early development. BPMN owns every transition, including budget checks before
-model and tool calls. Counters and the run start time are persisted as process
-variables; the server evaluates limits and BPMN routes exhaustion to failure.
-The wall-clock budget starts at the first model-budget check and is checked at
-step boundaries, not while waiting for human input. Completed instances carry
-`run_outcome: success|failure` because both BPMN end events complete normally.
-For CLI sessions (`interactive: true`), BPMN routes `finish` back to Reply
-instead; it means the current request is done, not that the session is closed.
-Other clients keep finite-run behavior when `interactive` is absent or false.
-
-Model and command jobs have one attempt to avoid automatic retries of side
-effects. Engine redelivery is still possible; execution is not exactly-once.
-Conversation state is bounded JSONL (1 MiB / 100 entries, fail rather than
-truncate). SQLite, output spill, and token-aware context selection remain unfinished.
-New transcripts use instance-scoped hashed filenames and private file permissions.
-Old business-key transcript files are not migrated; start fresh runs after upgrading. The executor runs commands locally with the server's
-permissions; it is not a security sandbox. `agent -workspace` is rejected;
-configure the server's workspace instead.
-See [TODO.md](TODO.md) for remaining work.
-
-Live process tests (requires the Compose engine):
-
-```sh
-make up
-TRET_INTEGRATION=1 go test -v ./internal/integration
-```
-
-A separate opt-in acceptance test uses a real model and temporary workspace:
-
-```sh
-TRET_MODEL_TEST=1 TRET_MODEL=qwen3:4b go test -v -run TestAgentLoopRealModel ./internal/integration
-```
-
-Use a dedicated engine with no other `agent-*` workers. The model must already
-be installed. `TRET_MODEL_BASE` defaults to `http://localhost:11434/v1`;
-`TRET_MODEL_API_KEY` enables authenticated endpoints. This runs local bash
-commands without a sandbox; the temporary workspace is isolation for test
-files, not a security boundary. Provider failures fail the test rather than
-falling back to a mock.
+Early development. Nothing is deployed or executed automatically; side effects
+happen only when a deployed process schedules a job. Engine job redelivery and
+crash-recovery limits are documented in [docs/workers.md](docs/workers.md) and
+still open, as are per-process variables budgets expressed as BPMN patterns and
+output spill (see TODO.md). The former bundled `agent_loop` process, its
+`agent-*` workers, transcript store, and interactive `tret agent` CLI were
+removed (see git history); rebuild such loops as plain BPMN plus these generic
+workers.
 
 ## License
 

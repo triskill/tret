@@ -7,88 +7,71 @@ import (
 	"testing"
 )
 
-func TestToolkitConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	data := "deploy_agent: false\nworkers: llm-call-v1\nmodel_profiles:\n  reviewer:\n    base_url: http://provider/v1\n    model: review-model\n    api_key: secret\n"
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
-		t.Fatal(err)
-	}
-	got := FromFlags([]string{"-config", path})
-	p := got.ModelProfiles["reviewer"]
-	if got.DeployAgent || got.Workers != "llm-call-v1" || p.BaseURL != "http://provider/v1" || p.Model != "review-model" || p.APIKey != "secret" {
-		t.Fatalf("unexpected toolkit config: %+v", got)
-	}
-	if !FromFlags([]string{"-config", path, "-deploy-agent=true"}).DeployAgent {
-		t.Fatal("explicit deployment flag ignored")
-	}
-}
-
 func TestFromFlagsDefaults(t *testing.T) {
-	if got := FromFlags(nil); !reflect.DeepEqual(got, defaults()) {
-		t.Fatalf("FromFlags(nil) = %+v, want %+v", got, defaults())
+	got := FromFlags(nil)
+	want := defaults()
+	if got.Workers != "llm-call-v1,exec-command-v1" {
+		t.Fatalf("default workers = %q", got.Workers)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FromFlags(nil) = %+v, want %+v", got, want)
 	}
 }
 
 func TestFromFlagsOverrides(t *testing.T) {
 	args := []string{
 		"--engine-rest", "http://engine:8080", "--engine-grpc=engine:9090",
-		"--state-dir", "./state", "--workspace", "./workspace",
+		"--exec-root", "./worker-dir", "--workers", "llm-call-v1",
 		"--model", "test-model", "--api-key", "test-key",
 		"--api-base", "http://api/v1", "--ollama-base", "http://ollama/v1",
-		"--max-tool-calls", "5", "--max-model-turns", "6", "--wall-clock", "7",
 	}
-	want := &Config{
-		DeployAgent: true,
-		Workers:     defaults().Workers,
-		EngineREST:  "http://engine:8080", EngineGRPC: "engine:9090",
-		StateDir: "./state", Workspace: "./workspace", Model: "test-model",
-		APIKey: "test-key", APIBase: "http://api/v1", OllamaBase: "http://ollama/v1",
-		MaxToolCalls: 5, MaxModelTurns: 6, WallClockSec: 7,
-	}
+	want := defaults()
+	want.EngineREST = "http://engine:8080"
+	want.EngineGRPC = "engine:9090"
+	want.ExecRoot = "./worker-dir"
+	want.Workers = "llm-call-v1"
+	want.Model = "test-model"
+	want.APIKey = "test-key"
+	want.APIBase = "http://api/v1"
+	want.OllamaBase = "http://ollama/v1"
 	if got := FromFlags(args); !reflect.DeepEqual(got, want) {
 		t.Fatalf("FromFlags() = %+v, want %+v", got, want)
 	}
 }
 
-func TestFromFlagsConfigAndOverrides(t *testing.T) {
-	files := []struct {
-		name string
-		data string
-	}{
-		{"config.yaml", "model: file-model\napi_key: file-key\nmax_tool_calls: 99\n"},
-		{"config.json", `{"model":"file-model","api_key":"file-key","max_tool_calls":99}`},
+func TestFileAndProfiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := "workers: llm-call-v1\nmodel_profiles:\n  reviewer:\n    base_url: http://provider/v1\n    model: review-model\n    api_key: secret\n"
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
 	}
-	for _, file := range files {
-		t.Run(file.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), file.name)
-			if err := os.WriteFile(path, []byte(file.data), 0600); err != nil {
-				t.Fatal(err)
-			}
-			cases := []struct {
-				name string
-				args []string
-			}{
-				{"file only", []string{"-config", path}},
-				{"config first", []string{"-config", path, "-model", "cli-model", "-max-tool-calls", "0"}},
-				{"config middle", []string{"-model", "cli-model", "-config", path, "-max-tool-calls", "0"}},
-				{"config last", []string{"-model", "cli-model", "-max-tool-calls", "0", "-config", path}},
-				{"equals syntax", []string{"--model=cli-model", "--config=" + path, "--max-tool-calls=0"}},
-			}
-			for _, tc := range cases {
-				t.Run(tc.name, func(t *testing.T) {
-					want := defaults()
-					want.Model = "file-model"
-					want.APIKey = "file-key"
-					want.MaxToolCalls = 99
-					if tc.name != "file only" {
-						want.Model = "cli-model"
-						want.MaxToolCalls = 0
-					}
-					if got := FromFlags(tc.args); !reflect.DeepEqual(got, want) {
-						t.Fatalf("FromFlags() = %+v, want %+v", got, want)
-					}
-				})
-			}
-		})
+	got := FromFlags([]string{"-config", path})
+	p := got.ModelProfiles["reviewer"]
+	if got.Workers != "llm-call-v1" || p.BaseURL != "http://provider/v1" || p.Model != "review-model" || p.APIKey != "secret" {
+		t.Fatalf("unexpected config: %+v", got)
+	}
+}
+
+func TestConfigFileBeatsDefaultsFlagsBeatFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := "model: file-model\napi_key: file-key\nexec_root: file-dir\nworkers: llm-call-v1\n"
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// File values beat defaults.
+	got := FromFlags([]string{"-config", path})
+	if got.Model != "file-model" || got.APIKey != "file-key" || got.ExecRoot != "file-dir" || got.Workers != "llm-call-v1" {
+		t.Fatalf("file values not applied: %+v", got)
+	}
+	// Explicit flags win regardless of position relative to -config.
+	for _, args := range [][]string{
+		{"-config", path, "-model", "cli-model", "-exec-root", "cli-dir"},
+		{"-model", "cli-model", "-config", path, "-exec-root", "cli-dir"},
+		{"--model=cli-model", "--config=" + path, "--exec-root=cli-dir"},
+	} {
+		got := FromFlags(args)
+		if got.Model != "cli-model" || got.ExecRoot != "cli-dir" || got.APIKey != "file-key" {
+			t.Fatalf("FromFlags(%v) = %+v", args, got)
+		}
 	}
 }
