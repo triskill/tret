@@ -140,6 +140,9 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
 
 - [ ] **Structured logs** (`log/slog`) with job key, instance key, element
       id, delivery token, attempt, worker id. Today: `fmt.Println`.
+      **Done**: every job is logged with its key, instance, element, attempt,
+      delivery token, duration and outcome; every provider call with its
+      model, duration and token usage. The level is configurable.
 - [ ] **Metrics.** Jobs by type/outcome, latency, in-flight, tokens and cost
       per profile, provider errors, and `tret_journal_hits_total` — the
       idempotency effectiveness metric.

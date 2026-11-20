@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -280,10 +281,12 @@ func (w *Worker) call(ctx context.Context, profile Profile, input Request, schem
 	// paid-for call whose answer is thrown away.
 	callCtx, cancel := worker.Detach(ctx, MaxCallDuration)
 	defer cancel()
+	started := time.Now()
 	result, err := w.Client.Complete(callCtx, profile, input)
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("provider call", "model", profile.Model, "duration_ms", time.Since(started).Milliseconds(), "finish_reason", result.FinishReason, "usage", result.Usage, "request_id", result.RequestID)
 	if schema != nil {
 		if result.FinishReason == "length" || result.FinishReason == "content_filter" {
 			return nil, &invalidOutput{fmt.Errorf("structured completion ended with %s", result.FinishReason)}

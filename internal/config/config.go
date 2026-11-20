@@ -46,6 +46,9 @@ type Config struct {
 	// JournalLease is how long a claim on a step lasts. A worker which dies
 	// while it holds a step releases it after this time.
 	JournalLease Duration `json:"journal_lease" yaml:"journal_lease"`
+	// LogLevel is the lowest level the server logs: debug, info, warn or
+	// error.
+	LogLevel string `json:"log_level" yaml:"log_level"`
 }
 
 func defaults() *Config {
@@ -59,6 +62,7 @@ func defaults() *Config {
 		OllamaBase:   "http://localhost:11434/v1",
 		LockDuration: Duration(worker.DefaultLockDuration),
 		JournalLease: Duration(journal.DefaultLease),
+		LogLevel:     "info",
 	}
 }
 
@@ -105,6 +109,7 @@ func FromFlags(args []string) (*Config, error) {
 		clientID      = cfg.ClientID
 		journalDir    = cfg.JournalDir
 		journalLease  = time.Duration(cfg.JournalLease)
+		logLevel      = cfg.LogLevel
 	)
 
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
@@ -122,6 +127,7 @@ func FromFlags(args []string) (*Config, error) {
 	fs.StringVar(&clientID, "client-id", clientID, "name of this worker at the engine (default: host and pid)")
 	fs.StringVar(&journalDir, "journal-dir", journalDir, "directory the journal of the finished steps lives in (empty: off)")
 	fs.DurationVar(&journalLease, "journal-lease", journalLease, "how long a claim on a step lasts")
+	fs.StringVar(&logLevel, "log-level", logLevel, "lowest level the server logs: debug, info, warn or error")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -170,6 +176,9 @@ func FromFlags(args []string) (*Config, error) {
 	}
 	if explicit["journal-lease"] {
 		cfg.JournalLease = Duration(journalLease)
+	}
+	if explicit["log-level"] {
+		cfg.LogLevel = logLevel
 	}
 	return cfg, nil
 }

@@ -6,6 +6,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -112,17 +113,39 @@ func (r *Registry) Options() []zenclient.WorkerOption {
 
 // Handle runs the handler of the job's type. The job is counted as in flight
 // until the handler returns, so a shutdown can wait for the work to finish
-// instead of cutting it short.
+// instead of cutting it short, and its outcome is logged with the fields
+// which identify it.
 func (r *Registry) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]any, *zenclient.WorkerError) {
 	if job != nil {
 		if handler, ok := r.handlers[job.GetType()]; ok {
 			r.inflight.Add(1)
 			defer r.inflight.Done()
-			return handler(ctx, job)
+			return r.run(ctx, job, handler)
 		}
 	}
 	zero := int32(0)
 	return nil, &zenclient.WorkerError{Err: fmt.Errorf("unregistered job type %q", job.GetType()), ErrorCode: "unknown_job_type", Retries: &zero}
+}
+
+// run calls the handler and logs the outcome of the job.
+func (r *Registry) run(ctx context.Context, job *proto.WaitingJob, handler zenclient.WorkerFunc) (map[string]any, *zenclient.WorkerError) {
+	started := time.Now()
+	result, workerErr := handler(ctx, job)
+	fields := []any{
+		"job_key", job.GetKey(),
+		"instance_key", job.GetInstanceKey(),
+		"element_id", job.GetElementId(),
+		"job_type", job.GetType(),
+		"attempt", job.GetAttempt(),
+		"delivery_token", job.GetDeliveryToken(),
+		"duration_ms", time.Since(started).Milliseconds(),
+	}
+	if workerErr != nil {
+		slog.Warn("job failed", append(fields, "outcome", "failed", "error_code", workerErr.ErrorCode, "err", workerErr.Err)...)
+		return result, workerErr
+	}
+	slog.Info("job completed", append(fields, "outcome", "completed")...)
+	return result, nil
 }
 
 // Drain waits until no job is in flight, or until ctx is done. A server

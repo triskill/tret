@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -34,6 +35,12 @@ func runServer(args []string) {
 		fmt.Fprintln(os.Stderr, "config error:", err)
 		os.Exit(1)
 	}
+	level := slog.LevelInfo
+	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
+		fmt.Fprintf(os.Stderr, "log level %q is not a level\n", cfg.LogLevel)
+		os.Exit(1)
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 
 	// One OpenAI-compatible endpoint set serves the default profile: api_key
 	// set -> api_base (OpenAI/OpenRouter/...); empty -> local Ollama /v1.
@@ -70,7 +77,7 @@ func runServer(args []string) {
 			os.Exit(1)
 		}
 		guard = journal.NewGuard(store, id, cfg.JournalLease.Duration())
-		fmt.Printf("journal: %s\n", store.Dir())
+		slog.Info("journal enabled", "dir", store.Dir())
 	}
 
 	llmWorker := llm.NewWorker(profiles, guard)
@@ -79,7 +86,7 @@ func runServer(args []string) {
 	if containsType(cfg.Workers, shellexec.JobType) {
 		shellWorker, err := shellexec.NewWorker(cfg.ExecRoot, guard)
 		if err != nil {
-			fmt.Println(err)
+			slog.Error("the exec worker is unusable", "err", err)
 			os.Exit(1)
 		}
 		builtins[shellexec.JobType] = shellWorker.Handle
@@ -87,9 +94,10 @@ func runServer(args []string) {
 	}
 	registry := worker.NewRegistry()
 	if err := registerSelected(registry, builtins, runtimes, cfg); err != nil {
-		fmt.Println(err)
+		slog.Error("the workers are unusable", "err", err)
 		os.Exit(1)
 	}
+	slog.Info("workers registered", "types", registry.Types(), "lock_duration", cfg.LockDuration.String(), "max_active_jobs", cfg.MaxActiveJobs)
 
 	options := registry.Options()
 	deadline := time.Now().Add(60 * time.Second)
@@ -108,19 +116,19 @@ func runServer(args []string) {
 			break
 		}
 		if time.Now().After(deadline) {
-			fmt.Println(err)
+			slog.Error("the engine is not reachable", "addr", cfg.EngineGRPC, "err", err)
 			os.Exit(1)
 		}
-		fmt.Printf("waiting for engine gRPC (%v)\n", err)
+		slog.Warn("waiting for the engine", "addr", cfg.EngineGRPC, "err", err)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(time.Second):
 		}
 	}
-	fmt.Println("server running")
+	slog.Info("server running", "client_id", id, "engine", cfg.EngineGRPC)
 	<-ctx.Done()
-	fmt.Println("server stopping")
+	slog.Info("server stopping")
 	// The workers keep their jobs when the stream breaks, so the shutdown
 	// waits for the running ones instead of cutting a side effect short.
 	// The settle time lets the jobs the engine handed out just before the
@@ -130,7 +138,7 @@ func runServer(args []string) {
 	drainCtx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	if err := registry.Drain(drainCtx); err != nil {
-		fmt.Printf("jobs still running at shutdown: %v\n", err)
+		slog.Warn("jobs are still running at the shutdown", "err", err)
 	}
 }
 

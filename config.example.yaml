@@ -30,6 +30,11 @@ max_active_jobs: 0
 # releases it after this time.
 journal_lease: 5m
 
+# Lowest level the server logs: debug, info, warn or error. Every job is
+# logged with its key, its instance, its element and its outcome; every
+# provider call with its model, its duration and its token usage.
+log_level: info
+
 # Named profiles for llm-call-v1. Credentials stay server-side.
 # The default profile falls back to the model/api_* settings above if omitted.
 # model_profiles:
