@@ -212,11 +212,24 @@ func TestNativeContentPartsAndBooleanToolSchema(t *testing.T) {
 	}
 }
 
-func TestCancellation(t *testing.T) {
-	worker := fixture(t, `{}`, 200, nil)
+// The provider call must survive a broken job stream. The engine cancels the
+// job context when the stream to the worker breaks and hands the job out
+// again; a call which dies with the stream is a paid-for call whose answer
+// is thrown away.
+func TestCallSurvivesCancelledJobContext(t *testing.T) {
+	calls := 0
+	worker := fixture(t, `{"choices":[{"message":{"content":"hello"}}]}`, 200, func(map[string]any) { calls++ })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	b, _ := json.Marshal(map[string]any{"llm_request": basicInput()})
-	_, err := worker.Handle(ctx, &proto.WaitingJob{InputVariables: b})
-	assertCode(t, err, "provider_error")
+	output, err := worker.Handle(ctx, &proto.WaitingJob{InputVariables: b})
+	if err != nil {
+		t.Fatalf("cancelled job context aborted the call: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d", calls)
+	}
+	if output["llm_result"].(map[string]any)["content"] != "hello" {
+		t.Fatalf("result=%v", output)
+	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"github.com/triskill/tret/examples/classifier/report"
+	"github.com/triskill/tret/pkg/worker"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -25,7 +26,10 @@ func main() {
 		log.Fatal(err)
 	}
 	defer conn.Close()
-	if _, err := zenclient.NewGrpc(conn).RegisterWorker(ctx, "classifier-example-report", report.Handle, "example-report-v1"); err != nil {
+	// worker.Subscribe asks the engine for a lock which outlasts the job, so
+	// a slow report is not handed to a second worker while this one is still
+	// working on it.
+	if _, err := worker.Subscribe(ctx, zenclient.NewGrpc(conn), "classifier-example-report", report.Handle, "example-report-v1"); err != nil {
 		log.Fatal(err)
 	}
 	log.Print("serving example-report-v1")

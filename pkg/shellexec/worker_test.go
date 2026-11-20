@@ -88,3 +88,28 @@ func TestWorkerTimeout(t *testing.T) {
 		t.Fatalf("expected timed_out, got %v", out)
 	}
 }
+
+// The command must survive a broken job stream. The engine cancels the job
+// context when the stream to the worker breaks and hands the job out again;
+// a command killed halfway is a partially applied side effect which then runs
+// a second time.
+func TestCommandSurvivesCancelledJobContext(t *testing.T) {
+	w, err := NewWorker(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"exec_request": map[string]any{"command": "echo hi", "timeout_sec": 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out, workerErr := w.Handle(ctx, &proto.WaitingJob{InputVariables: raw})
+	if workerErr != nil {
+		t.Fatalf("cancelled job context aborted the command: %v", workerErr)
+	}
+	result := out["exec_result"].(map[string]any)
+	if result["stdout"] != "hi\n" || result["cancelled"] != false {
+		t.Fatalf("unexpected result: %v", result)
+	}
+}

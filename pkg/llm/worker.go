@@ -8,13 +8,19 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"github.com/triskill/tret/pkg/worker"
 )
 
 const JobType = "llm-call-v1"
+
+// MaxCallDuration bounds one provider call. It is also the worker's longest
+// runtime, which the job lock must outlast.
+const MaxCallDuration = 120 * time.Second
 
 // Worker serves trusted process definitions. Native tool definitions are sent
 // to the provider but never executed. Endpoints and secrets remain server-owned.
@@ -199,7 +205,12 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || strings.TrimSpace(profile.Model) == "" {
 		return failure("invalid_input", fmt.Errorf("invalid server model profile %q", input.ModelProfile))
 	}
-	result, err := w.Client.Complete(ctx, profile, input)
+	// The provider call must not die with the job stream: the engine
+	// redelivers the job after a reconnect, and an interrupted call is a
+	// paid-for call whose answer is thrown away.
+	callCtx, cancel := worker.Detach(ctx, MaxCallDuration)
+	defer cancel()
+	result, err := w.Client.Complete(callCtx, profile, input)
 	if err != nil {
 		return failure("provider_error", err)
 	}

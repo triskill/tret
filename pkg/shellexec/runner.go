@@ -61,7 +61,11 @@ func (r *Runner) Run(ctx context.Context, command string, timeout time.Duration)
 		return &RunResult{Cancelled: true, Duration: 0}, nil
 	}
 
-	cmd := exec.Command("bash", "-lc", command)
+	// A login shell would source /etc/profile and the profile files of the
+	// workspace, so the environment of a command would depend on the files
+	// in the working directory. The environment below is the whole
+	// environment.
+	cmd := exec.Command("bash", "--noprofile", "--norc", "-c", command)
 	cmd.Dir = r.WorkspaceRoot
 	cmd.Stdin = nil
 	cmd.Env = []string{

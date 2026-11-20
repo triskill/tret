@@ -63,10 +63,11 @@ handlers; without a handler it creates an incident.
 
 ## `exec-command-v1`
 
-One `bash -lc` command per job. Runs with the server's permissions in the
-server-configured `exec_root`; there is no sandbox and no environment beyond
-HOME/TMPDIR/LANG. Treat it as a tool the process deliberately invokes, not a
-security boundary.
+One `bash --noprofile --norc -c` command per job. Runs with the server's permissions in the
+server-configured `exec_root`; there is no sandbox and no environment beyond HOME/TMPDIR/LANG.
+Treat it as a tool the process deliberately invokes, not a security boundary. The shell reads
+no profile file, so the environment of a command does not depend on the files in the
+workspace.
 
 Input variable `exec_request`:
 
@@ -99,18 +100,41 @@ run more than once; idempotent commands should carry their own dedup key.
    stops at an incident.
 5. Declare side effects, replay behavior, time/resource limits, cancellation,
    and which external credentials/permissions your worker needs.
-6. Register the type in a separate process using
-   `zenclient.RegisterWorkerWithOptions`. The public
-   `pkg/worker.Registry` provides optional explicit dispatch for a
-   multi-type worker process. Configure it before serving; unknown types fail.
+6. Register the type in a separate process using `worker.Subscribe`, which
+   asks the engine for a lock which outlasts the job, or
+   `zenclient.RegisterWorkerWithOptions` with an explicit
+   `zenclient.WithLockDuration`. The public `pkg/worker.Registry` provides
+   optional explicit dispatch for a multi-type worker process. Configure it
+   before serving; unknown types fail.
+
+### Locks, redelivery and the job key
+
+The engine reserves a delivered job for a worker until the lock lapses, then
+hands it out again. A worker whose lock is shorter than its job therefore sees
+its job several times, running at the same time. Subscribe with a lock longer
+than the longest run of the handler — `pkg/worker` refuses a subscription
+whose lock does not outlast the declared runtime — and renew it with
+`ExtendDeliveryLock` for work that may run long.
+
+A job which the engine hands out again after a broken stream is *the same
+step*. Key every side effect on the engine job key (`WaitingJob.Key`), not on
+the attempt and not on the delivery token: those two change per delivery, so
+an effect keyed on them runs again on every retry. Persist the result of the
+step next to the key and return the stored result when the job comes back;
+that is what turns a redelivery into a repeat instead of a second execution.
+The built-in workers do not do this yet.
 
 ### Delivery and recovery
 
 One attempt does not mean one execution. Engine job redelivery is still
 possible, including handing a second attempt of a job whose first attempt ran;
-an LLM call can be billed twice and a command can run twice. Idempotent workers
-should use an operation identity tied to the engine job and persist known
-results. Non-idempotent workers should stop for manual reconciliation on
-unknown outcomes. This POC provides no journal, fencing, or automatic safe
-replay. Resolving an incident is an operator action, not a guarantee that
-rerunning a side effect is safe.
+an LLM call can be billed twice and a command can run twice. A broken job
+stream does not cancel the work in flight: the built-in workers run the call
+or the command under their own deadline, so a reconnect costs a redelivery but
+not a half-finished side effect.
+
+Idempotent workers should use an operation identity tied to the engine job
+and persist known results. Non-idempotent workers should stop for manual
+reconciliation on unknown outcomes. This POC provides no journal, fencing, or
+automatic safe replay. Resolving an incident is an operator action, not a
+guarantee that rerunning a side effect is safe.

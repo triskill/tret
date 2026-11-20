@@ -13,6 +13,7 @@ import (
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
+	"github.com/triskill/tret/pkg/worker"
 )
 
 const JobType = "exec-command-v1"
@@ -21,6 +22,15 @@ const defaultTimeout = 60 * time.Second
 
 // maxTimeout matches the Runner's hard cap.
 const maxTimeout = 120 * time.Second
+
+// execGrace is the time the command may outlive its own timeout before the
+// runner's context cancels it. The runner enforces the timeout itself and
+// reports it as a timeout; the grace only matters if the runner fails to.
+const execGrace = 5 * time.Second
+
+// MaxTimeout is the longest a command may run. It is also the worker's
+// longest runtime, which the job lock must outlast.
+const MaxTimeout = maxTimeout
 
 // Request is the exec_request job variable.
 type Request struct {
@@ -88,7 +98,12 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 		}
 		timeout = time.Duration(*input.TimeoutSec * float64(time.Second))
 	}
-	result, err := w.Runner.Run(ctx, input.Command, timeout)
+	// The command must not die with the job stream: the engine redelivers
+	// the job after a reconnect, and a command killed halfway is a partially
+	// applied side effect which then runs a second time.
+	runCtx, cancel := worker.Detach(ctx, timeout+execGrace)
+	defer cancel()
+	result, err := w.Runner.Run(runCtx, input.Command, timeout)
 	if err != nil {
 		// Run errors only before the process starts (size, encoding,
 		// validation); they never mean an unknown outcome.

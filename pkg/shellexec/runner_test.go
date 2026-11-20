@@ -76,6 +76,31 @@ func TestRunnerEmptyCommand(t *testing.T) {
 	}
 }
 
+// The environment of a command is the environment the runner sets, not the
+// one a login shell would assemble from the files in the workspace.
+func TestRunnerIgnoresProfileFiles(t *testing.T) {
+	d := t.TempDir()
+	for _, name := range []string{".bash_profile", ".profile", ".bashrc"} {
+		if err := os.WriteFile(filepath.Join(d, name), []byte("echo profile > marker\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := NewRunner(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Run(context.Background(), "echo hi", 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stdout != "hi\n" {
+		t.Fatalf("stdout=%q", res.Stdout)
+	}
+	if _, err := os.Stat(filepath.Join(d, "marker")); err == nil {
+		t.Fatal("a profile file of the workspace was executed")
+	}
+}
+
 func TestRunnerWorkspace(t *testing.T) {
 	d := t.TempDir()
 	os.WriteFile(filepath.Join(d, "f.txt"), []byte("hi"), 0644)
