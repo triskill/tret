@@ -16,6 +16,10 @@ Severity: **S1** = data corruption / duplicated side effects / money,
 
 ## S1 — In-flight work is aborted when the job stream breaks, and then repeated
 
+**Fixed** (commit `5063e9e`): the side effect runs under `worker.Detach`,
+which gives the work its own deadline and ignores the cancellation of the
+stream.
+
 `pkg/llm/worker.go:202` and `pkg/shellexec/worker.go:91` pass the job context
 straight into the side effect. That context is the **gRPC stream context**:
 `zenclient.Worker.handleJob` calls `w.f(stream.Context(), job)`, and
@@ -60,6 +64,12 @@ idempotency journal below, otherwise the detached work makes the duplication
 ---
 
 ## S1 — The job lock is shorter than the worker's own worst case on every path but one
+
+**Fixed** (commit `5063e9e`): `pkg/worker.Spec` refuses a subscription whose
+lock does not outlast the declared runtime, `worker.Subscribe` is the safe
+path for third-party workers, and the server validates the configured lock
+against the runtime of the workers it serves. The renewal of the lock with
+`ExtendDeliveryLock` is still open.
 
 The engine's default lock duration is **30 s**
 (`internal/config/config.go:177` `DefaultLockDurationMs: 30000`).
@@ -111,6 +121,11 @@ deliveries ran the side effect.
 
 ## S1 — No idempotency: every redelivery repeats the side effect
 
+**Fixed** (commit `7534998`): `pkg/journal` stores the result of a step,
+keyed on the engine job key, and a redelivery returns the stored result. The
+store keeps its records on one node; a store several nodes can reach is open,
+as is the fencing of effects which cannot be keyed.
+
 Neither worker ever looks at `job.GetKey()`, `job.GetAttempt()` or
 `job.GetDeliveryToken()`. There is no journal, no fence, no memoization.
 Combined with the two findings above this means *the number of executions of a
@@ -149,6 +164,11 @@ server's permissions.
 
 ## S2 — The BPMN `retries` attribute is dead for both built-in workers
 
+**Fixed** (commit `75b078f`): the provider reports a typed error with its
+status, a busy or failed provider is reported without an error code — so the
+engine spends a retry — and a refused request keeps its catchable code.
+Verified against the live engine.
+
 `pkg/llm/worker.go` and `pkg/shellexec/worker.go` always attach an error code
 (`invalid_input`, `provider_error`, `invalid_output`). The engine documents
 (`pkg/bpmn/jobs_api.go`):
@@ -185,6 +205,12 @@ error code the retries are not *disabled*, they are *never consulted*.
 
 ## S2 — `exec-command-v1` is not safe to expose, and it blocks horizontal scaling
 
+**Partly fixed** (commit `5063e9e`, `c84f571`): the shell reads no profile
+file, so the environment of a command does not depend on the files in the
+workspace, and with `exec_workspace: instance` every instance has a directory
+of its own under the `exec_root`. The sandbox, the resource limits and the
+network policy are still open.
+
 * `exec_root` defaults to `"."` — the server's working directory
   (`internal/config/config.go:35`).
 * Commands run with the server's permissions; there is no sandbox, no CPU /
@@ -206,6 +232,10 @@ based isolation is the follow-up (`futurePlans.md`, Phase 6).
 ---
 
 ## S2 — Misconfiguration is reported as a process error, and the config package kills the process
+
+**Fixed** (commit `5063e9e`): `FromFlags` reports an error instead of
+exiting, and the server validates every model profile at startup. The
+"no api key → Ollama" heuristic is still open.
 
 * `pkg/llm/worker.go:200` — an invalid **server** profile is returned as
   `invalid_input`, i.e. "the process sent a bad request". The process did
@@ -229,6 +259,10 @@ fail fast with a precise message. `FromFlags` should return `(*Config, error)`.
 
 ## S3 — The local `config.yaml` is stale and breaks the server immediately
 
+**Fixed** (commit `c84f571`): the loader is strict, so the stale keys are
+reported with their lines instead of being ignored, and the local file is
+refreshed.
+
 `config.yaml` (gitignored, but present in the working copy and copied from an
 older revision) still contains the removed agent-loop keys
 (`deploy_agent`, `workers: agent-budget,agent-decide,agent-execute,…`,
@@ -248,6 +282,9 @@ The unknown keys are silently ignored because `yaml.Unmarshal` is not strict
 ---
 
 ## S3 — `tret server` ignores `config.yaml` unless `-config` is passed
+
+**Fixed** (commit `c84f571`): the configuration of a directory is the
+`config.yaml` in it.
 
 `-config` defaults to `""` (`internal/config/config.go:68`), so a plain
 `tret server` in a directory with a perfectly good `config.yaml` runs with
@@ -284,6 +321,12 @@ recipe alone cannot scale.
 ---
 
 ## S3 — No observability at all
+
+**Partly fixed** (commit `bcdb4c3`): every job is logged with its key, its
+instance, its element, its attempt, its delivery token, its duration and its
+outcome; every provider call with its model, its duration and its token
+usage. The metrics, the traces, the health endpoints and `tret doctor` are
+still open.
 
 * `cmd/tret/server.go` logs with `fmt.Println`; there is no structured log,
   no job/instance/element correlation, no metric, no trace.
@@ -352,6 +395,9 @@ explicitly listed (`role`, `content`, `name`, `tool_calls`, `tool_call_id`,
 
 ## S4 — The server exposes no concurrency control
 
+**Partly fixed** (commit `5063e9e`): `max_active_jobs` is configurable. The
+client-side semaphore is still open.
+
 `cmd/tret/server.go:58-61` sets only the lock duration. `WithMaxActiveJobs`
 exists in the zenclient but is unused, so the engine's default applies: **10
 active jobs per job type per subscription** (`internal/config/config.go:179`).
@@ -366,6 +412,9 @@ memory.
 ---
 
 ## S4 — The worker client ID collides across hosts
+
+**Fixed** (commit `5063e9e`): the client id is the host, the pid and a random
+suffix, and it is configurable.
 
 `cmd/tret/server.go:67` uses `fmt.Sprintf("tret-%d", os.Getpid())`. In
 containers the PID is usually 1, so every replica registers as `tret-1`. The

@@ -63,9 +63,22 @@ store, budgets, and observability.
 
 Nothing else can be built safely before this. Target: two weeks.
 
+**Status**: the side effects run detached from the job stream (`worker.Detach`),
+every subscription asks for a lock which outlasts the work (`pkg/worker.Spec`),
+the failures are split into transient and terminal ones (so the `retries` of a
+task definition work again), and the journal of the finished steps exists
+(`pkg/journal`, keyed on the engine job key, with a file store for one node).
+Still open: a store several nodes can reach, the fencing of effects which
+cannot be keyed, the renewal of the lock with `ExtendDeliveryLock`, and the
+sandbox for the exec worker.
+
 ### 2.1 Execution identity and the idempotency journal
 
-New package `pkg/idem` + a small service/library `pkg/journal`:
+Done in `pkg/journal`: the interface, the guard which applies the protocol to
+a worker, an in-memory store and a file store for one node. The store several
+nodes can reach is still open.
+
+```
 
 ```
 type Key struct {
@@ -106,11 +119,13 @@ Key properties:
   step is retried. That is the unavoidable "unknown outcome" window — it is
   *narrowed*, not removed, and the contract must say so.
 
-Store backends (pluggable `Journal` interface):
+Store backends (the `Journal` interface):
 
-* `SQLite` (single node, WAL) — default, zero infrastructure.
+* `Memory` — in the process, for the tests.
+* `File` — a directory, so the records survive the restart of a worker and
+  are shared by the workers of one node. Done.
 * `Postgres` — for multi-node deployments; `INSERT … ON CONFLICT DO NOTHING`
-  gives the atomic acquire.
+  gives the atomic acquire. Open.
 
 ### 2.2 Effects that cannot be made idempotent
 
@@ -587,7 +602,7 @@ a **production blocker**.
 
 | Phase | Theme | Outcome | Depends on |
 |---|---|---|---|
-| 0 | Correctness | idempotent effects, detached work, lock discipline, error taxonomy | — |
+| 0 | Correctness | idempotent effects, detached work, lock discipline, error taxonomy — *mostly done* | — |
 | 1 | State outside the engine | artifact store, transcript store, bounded outputs | 0 |
 | 2 | Budgets | BPMN counter recipe + server-side spend guard | 1 |
 | 3 | Horizontal scale | unique client IDs, shared journal/store, backpressure, health | 0, 1 |
