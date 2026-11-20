@@ -57,9 +57,29 @@ provider metadata; missing fields are not fabricated. Responses bigger than
 8 MiB are rejected; the HTTP call timeout is 120 s. These are transport limits,
 not per-process budget — BPMN owns budgets with its own counters and gateways.
 
-Failures use `invalid_input`, `provider_error`, or `invalid_output` WorkerError
-codes with zero retries. ZenBPM can catch these codes with BPMN error
-handlers; without a handler it creates an incident.
+Failures come in two kinds.
+
+A failure with an error code is a BPMN error: ZenBPM catches it with a
+matching error handler, and without one it creates an incident. The engine
+does not spend a retry for it, so the `retries` attribute of the task
+definition has no effect.
+
+A failure *without* an error code spends one of the job's retries: the engine
+hands the job out again after the `retryBackoff` of the task definition, and
+the last attempt creates an incident.
+
+| failure | code | retries |
+|---|---|---|
+| the request is not usable | `invalid_input` | none — BPMN error |
+| the provider refused the request or answered something unusable | `provider_error` | none — BPMN error |
+| the provider refused the credentials | `provider_auth` | none — BPMN error |
+| the answer does not match `output_schema` | `invalid_output` | none — BPMN error |
+| the provider is busy, failed on its own side, or was not reached | — | one per attempt |
+
+The last row is the one a process wants to survive: set `retries` and
+`retryBackoff` on the task definition and a busy provider is waited out
+instead of ending the loop. The provider's answer body is never put into the
+error; only the status is.
 
 ## `exec-command-v1`
 
@@ -87,9 +107,13 @@ Output variable `exec_result`:
 
 Exit codes, timeouts, and capped output (32 KiB per stream, `truncated` flag)
 are ordinary results for BPMN to route on; only request-validation problems are
-`invalid_input` worker errors. Commands run in their own process group with
-TERM→KILL escalation. One attempt plus possible redelivery means commands may
-run more than once; idempotent commands should carry their own dedup key.
+`invalid_input` worker errors. A command which fails is not a worker error at
+all: it is a result the process routes on. The worker has no retryable
+failure of its own, so the `retries` attribute of the task definition only
+matters for the redelivery of the job. Commands run in their own process group
+with TERM→KILL escalation. One attempt plus possible redelivery means
+commands may run more than once; idempotent commands should carry their own
+dedup key.
 
 ## Authoring another worker
 

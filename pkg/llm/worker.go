@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -38,11 +40,19 @@ func NewWorker(profiles map[string]Profile) *Worker {
 }
 
 // Error codes are catchable BPMN errors. If the process has no matching error
-// boundary, ZenBPM creates an incident. Zero retries disables scheduled retries,
-// not transport redelivery.
+// boundary, ZenBPM creates an incident. Zero retries disables scheduled
+// retries, not transport redelivery.
 func failure(code string, err error) (map[string]any, *zenclient.WorkerError) {
 	zero := int32(0)
 	return nil, &zenclient.WorkerError{Err: err, ErrorCode: code, Retries: &zero}
+}
+
+// transient reports a failure which another attempt may survive. It carries
+// no error code: the engine then spends one of the job's retries and hands
+// the job out again after the backoff of the task definition. A failure with
+// an error code never spends a retry — it is a BPMN error right away.
+func transient(err error) (map[string]any, *zenclient.WorkerError) {
+	return nil, &zenclient.WorkerError{Err: err}
 }
 
 func strictDecode(raw []byte, into any) error {
@@ -180,6 +190,26 @@ func compileSchema(raw json.RawMessage) (*jsonschema.Schema, error) {
 	return compiler.Compile("urn:tret:output")
 }
 
+// providerFailure maps a failed call to a worker error. A provider which is
+// busy, which failed on its own side, or which was not reached at all is
+// worth another attempt and spends a retry of the job. A provider which
+// refused the request, or answered something unusable, is a BPMN error the
+// process can catch.
+func providerFailure(err error) (map[string]any, *zenclient.WorkerError) {
+	var providerErr *ProviderError
+	if errors.As(err, &providerErr) {
+		if providerErr.Retryable() {
+			return transient(err)
+		}
+		switch providerErr.Status {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return failure("provider_auth", err)
+		}
+		return failure("provider_error", err)
+	}
+	return failure("provider_error", err)
+}
+
 func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]any, *zenclient.WorkerError) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(job.GetInputVariables(), &envelope); err != nil {
@@ -212,7 +242,7 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	defer cancel()
 	result, err := w.Client.Complete(callCtx, profile, input)
 	if err != nil {
-		return failure("provider_error", err)
+		return providerFailure(err)
 	}
 	if schema != nil {
 		if result.FinishReason == "length" || result.FinishReason == "content_filter" {

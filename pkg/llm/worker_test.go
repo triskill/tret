@@ -142,17 +142,75 @@ func TestInvalidInputBeforeNetwork(t *testing.T) {
 		assertCode(t, err, "invalid_input")
 	}
 }
-func TestProviderErrors(t *testing.T) {
+
+// A provider which is busy, or which failed on its own side, is worth
+// another attempt: the failure carries no error code, so the engine spends
+// one of the job's retries and the task definition's backoff applies.
+func TestProviderErrorsAreRetryable(t *testing.T) {
 	for _, tc := range []struct {
+		name   string
 		status int
 		body   string
-	}{{500, `secret provider detail`}, {200, `not json`}, {200, `{"choices":[]}`}, {200, `{"choices":[{}]}`}, {200, `{"choices":[{"message":{}}]}`}, {200, `{"choices":[{"message":{"content":null}}]}`}, {200, strings.Repeat("x", maxResponseBytes+1)}} {
-		worker := fixture(t, tc.body, tc.status, nil)
-		_, err := runInput(t, worker, basicInput())
-		assertCode(t, err, "provider_error")
-		if strings.Contains(err.Error(), "secret provider detail") {
-			t.Fatal("provider body leaked")
-		}
+	}{
+		{"busy", 429, `slow down`},
+		{"server error", 500, `secret provider detail`},
+		{"gateway error", 502, `bad gateway`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			worker := fixture(t, tc.body, tc.status, nil)
+			_, err := runInput(t, worker, basicInput())
+			if err == nil {
+				t.Fatal("expected a failure")
+			}
+			if err.ErrorCode != "" {
+				t.Fatalf("expected a failure without an error code, got %q", err.ErrorCode)
+			}
+			if err.Retries != nil {
+				t.Fatalf("expected the engine to spend a retry, got %v", *err.Retries)
+			}
+			if strings.Contains(err.Error(), "secret provider detail") {
+				t.Fatal("provider body leaked")
+			}
+		})
+	}
+}
+
+// A call which never reached the provider is worth another attempt too.
+func TestTransportFailureIsRetryable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	address := srv.URL
+	srv.Close()
+	worker := NewWorker(map[string]Profile{"default": {BaseURL: address, Model: "server-model"}})
+	_, err := runInput(t, worker, basicInput())
+	if err == nil || err.ErrorCode != "" || err.Retries != nil {
+		t.Fatalf("expected a retryable failure, got %#v", err)
+	}
+}
+
+// A request the provider refused, or an answer it could not use, is a BPMN
+// error the process can catch.
+func TestProviderErrorsAreTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		code   string
+	}{
+		{"refused", 400, `bad request`, "provider_error"},
+		{"unauthorized", 401, `no key`, "provider_auth"},
+		{"forbidden", 403, `no key`, "provider_auth"},
+		{"not json", 200, `not json`, "provider_error"},
+		{"no choices", 200, `{"choices":[]}`, "provider_error"},
+		{"no message", 200, `{"choices":[{}]}`, "provider_error"},
+		{"empty message", 200, `{"choices":[{"message":{}}]}`, "provider_error"},
+		{"null content", 200, `{"choices":[{"message":{"content":null}}]}`, "provider_error"},
+		{"too large", 200, strings.Repeat("x", maxResponseBytes+1), "provider_error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			worker := fixture(t, tc.body, tc.status, nil)
+			_, err := runInput(t, worker, basicInput())
+			assertCode(t, err, tc.code)
+		})
 	}
 }
 

@@ -50,6 +50,37 @@ func NewClient() *Client { return &Client{HTTPClient: &http.Client{Timeout: 120 
 
 const maxResponseBytes = 8 << 20
 
+// ProviderError reports a call which did not yield a usable answer. Status
+// is the HTTP status the provider answered with, zero when the call never
+// reached it.
+type ProviderError struct {
+	Status int
+	Err    error
+}
+
+func (e *ProviderError) Error() string {
+	if e.Status == 0 {
+		return e.Err.Error()
+	}
+	return fmt.Sprintf("%v (HTTP status %d)", e.Err, e.Status)
+}
+
+func (e *ProviderError) Unwrap() error { return e.Err }
+
+// Retryable reports whether another attempt can succeed. A call which never
+// reached the provider, a provider which is busy, and a provider which
+// failed on its own side are all worth another attempt; a request the
+// provider refused is not.
+func (e *ProviderError) Retryable() bool {
+	if e.Status == 0 {
+		return true
+	}
+	if e.Status == http.StatusTooManyRequests {
+		return true
+	}
+	return e.Status >= 500
+}
+
 func (c *Client) Complete(ctx context.Context, profile Profile, input Request) (*Result, error) {
 	body := map[string]any{"model": profile.Model, "messages": input.Messages, "stream": false}
 	if len(input.Tools) > 0 {
@@ -78,18 +109,18 @@ func (c *Client) Complete(ctx context.Context, profile Profile, input Request) (
 	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("completion request: %w", err)
+		return nil, &ProviderError{Err: fmt.Errorf("completion request: %w", err)}
 	}
 	defer resp.Body.Close()
 	rb, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read completion: %w", err)
+		return nil, &ProviderError{Err: fmt.Errorf("read completion: %w", err)}
 	}
 	if len(rb) > maxResponseBytes {
-		return nil, fmt.Errorf("completion response exceeds %d bytes", maxResponseBytes)
+		return nil, &ProviderError{Status: resp.StatusCode, Err: fmt.Errorf("completion response exceeds %d bytes", maxResponseBytes)}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("completion HTTP status %d", resp.StatusCode)
+		return nil, &ProviderError{Status: resp.StatusCode, Err: fmt.Errorf("completion HTTP status %d", resp.StatusCode)}
 	}
 	var decoded struct {
 		ID      string         `json:"id"`
