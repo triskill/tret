@@ -89,6 +89,14 @@ func runServer(args []string) {
 			slog.Error("the exec worker is unusable", "err", err)
 			os.Exit(1)
 		}
+		switch cfg.ExecWorkspace {
+		case "shared":
+		case "instance":
+			shellWorker.Isolated = true
+		default:
+			slog.Error("exec_workspace must be shared or instance", "value", cfg.ExecWorkspace)
+			os.Exit(1)
+		}
 		builtins[shellexec.JobType] = shellWorker.Handle
 		runtimes[shellexec.JobType] = shellexec.MaxTimeout
 	}

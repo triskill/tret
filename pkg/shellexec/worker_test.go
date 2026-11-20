@@ -134,6 +134,65 @@ func TestRedeliveryRepeatsTheResult(t *testing.T) {
 	}
 }
 
+// With the isolation on, the instances do not write into each other's files,
+// while the steps of one instance still share their directory.
+func TestIsolatedWorkspaces(t *testing.T) {
+	root := t.TempDir()
+	w, err := NewWorker(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Isolated = true
+	run := func(instance int64, command string) string {
+		raw, err := json.Marshal(map[string]any{"exec_request": map[string]any{"command": command, "timeout_sec": 5}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := instance
+		out, workerErr := w.Handle(context.Background(), &proto.WaitingJob{InputVariables: raw, InstanceKey: &key})
+		if workerErr != nil {
+			t.Fatal(workerErr)
+		}
+		return out["exec_result"].(map[string]any)["stdout"].(string)
+	}
+	if got := run(1, "echo one > own.txt; cat own.txt"); got != "one\n" {
+		t.Fatalf("stdout=%q", got)
+	}
+	if got := run(2, "cat own.txt 2>/dev/null || echo none"); got != "none\n" {
+		t.Fatalf("the instances share their files: stdout=%q", got)
+	}
+	// The steps of one instance share their directory.
+	if got := run(1, "cat own.txt"); got != "one\n" {
+		t.Fatalf("stdout=%q", got)
+	}
+	// The directory of the instance is under the workspace root.
+	if _, err := os.Stat(filepath.Join(root, "instances", "1")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Without the isolation, every command runs in the workspace root.
+func TestSharedWorkspace(t *testing.T) {
+	root := t.TempDir()
+	w, err := NewWorker(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"exec_request": map[string]any{"command": "pwd", "timeout_sec": 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := int64(1)
+	out, workerErr := w.Handle(context.Background(), &proto.WaitingJob{InputVariables: raw, InstanceKey: &key})
+	if workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	got := strings.TrimSpace(out["exec_result"].(map[string]any)["stdout"].(string))
+	if got != root {
+		t.Fatalf("the command ran in %q, want %q", got, root)
+	}
+}
+
 func TestCommandSurvivesCancelledJobContext(t *testing.T) {
 	w, err := NewWorker(t.TempDir())
 	if err != nil {

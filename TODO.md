@@ -92,8 +92,11 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
 - [ ] **`exec-command-v1` hardening.** Per-job workspace instead of the
       shared `exec_root`, minimal env. (S2)
       **Done**: the shell reads no profile file, so the environment of a
-      command does not depend on the files in the workspace. The per-job
-      workspace is still open.
+      command does not depend on the files in the workspace; with
+      `exec_workspace: instance` every instance gets a directory of its own
+      under the `exec_root`, so the instances do not write into each other's
+      files. The directories are not cleaned up, and a sandbox is still
+      open.
 
 ## Open — Phase 1: state outside the engine
 
@@ -204,7 +207,9 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
       removed `agent-budget` workers; `tret server -config config.yaml`
       fails immediately). Make the YAML loader strict so unknown keys are an
       error.
-- [ ] `tret server` should pick up `config.yaml` by default when it exists.
+      **Done**: the loader is strict, so the stale keys are reported with
+      their lines; the local file is refreshed.
+- [x] `tret server` should pick up `config.yaml` by default when it exists.
 - [ ] Untracked leftovers from the removed context store exist on dev
       machines: `data/contexts/`, `state/` (both gitignored). Safe to delete
       locally.

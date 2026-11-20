@@ -120,6 +120,41 @@ func TestFromFlagsReportsErrors(t *testing.T) {
 	}
 }
 
+// A key the configuration does not know is a mistake, not a remark.
+func TestUnknownConfigKeyIsAnError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("worker: llm-call-v1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FromFlags([]string{"-config", path}); err == nil {
+		t.Fatal("an unknown key was accepted")
+	}
+}
+
+// The configuration of a directory is the file in it.
+func TestDefaultConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, defaultConfigFile)
+	if err := os.WriteFile(path, []byte("model: from-the-file\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(previous)
+	got, err := FromFlags(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "from-the-file" {
+		t.Fatalf("model = %q", got.Model)
+	}
+}
+
 func TestDurationFormats(t *testing.T) {
 	var d Duration
 	if err := d.UnmarshalJSON([]byte(`"90s"`)); err != nil || d.Duration() != 90*time.Second {

@@ -10,6 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
@@ -48,6 +51,10 @@ type Request struct {
 type Worker struct {
 	Runner *Runner
 	guard  *journal.Guard
+	// Isolated gives every instance its own directory under the workspace
+	// root, so the instances do not write into each other's files. The
+	// steps of one instance still share their directory.
+	Isolated bool
 }
 
 // NewWorker returns a worker which runs commands in the workspace root. The
@@ -123,10 +130,14 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	// applied side effect which then runs a second time.
 	runCtx, cancel := worker.Detach(ctx, timeout+execGrace)
 	defer cancel()
+	dir, err := w.workspace(job)
+	if err != nil {
+		return invalid(err)
+	}
 	// The command is the step. The journal makes a redelivery of the job
 	// repeat its result instead of running the command a second time.
 	out, err := w.guard.Do(ctx, journal.Key{JobKey: job.GetKey()}, func() (map[string]any, error) {
-		result, err := w.Runner.Run(runCtx, input.Command, timeout)
+		result, err := w.Runner.RunIn(runCtx, dir, input.Command, timeout)
 		if err != nil {
 			// Run errors only before the process starts (size, encoding,
 			// validation); they never mean an unknown outcome.
@@ -155,4 +166,25 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 		return invalid(err)
 	}
 	return out, nil
+}
+
+// workspace returns the directory a command of the job runs in. With the
+// isolation on, every instance has its own directory under the workspace
+// root; the steps of one instance share it, the instances do not share
+// theirs.
+func (w *Worker) workspace(job *proto.WaitingJob) (string, error) {
+	root := w.Runner.WorkspaceRoot
+	if !w.Isolated {
+		return root, nil
+	}
+	key := job.GetInstanceKey()
+	if key == 0 {
+		// A job without an instance has no directory of its own.
+		return root, nil
+	}
+	dir := filepath.Join(root, "instances", strconv.FormatInt(key, 10))
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("workspace of instance %d: %w", key, err)
+	}
+	return dir, nil
 }

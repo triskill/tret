@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,6 +17,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// defaultConfigFile is the configuration of a directory, used when no file
+// is named.
+const defaultConfigFile = "config.yaml"
+
 type Config struct {
 	Workers string `json:"workers" yaml:"workers"`
 	// ModelProfiles are server-owned endpoints/credentials, never process variables.
@@ -24,9 +29,13 @@ type Config struct {
 	EngineGRPC    string                 `json:"engine_grpc" yaml:"engine_grpc"`
 	// ExecRoot is the workspace directory exec-command-v1 jobs run in.
 	ExecRoot string `json:"exec_root" yaml:"exec_root"`
-	Model    string `json:"model" yaml:"model"`
-	APIKey   string `json:"api_key" yaml:"api_key"`
-	APIBase  string `json:"api_base" yaml:"api_base"`
+	// ExecWorkspace is how the commands of the instances share the exec
+	// root: "shared" runs every command in it, "instance" gives every
+	// instance a directory of its own under it.
+	ExecWorkspace string `json:"exec_workspace" yaml:"exec_workspace"`
+	Model         string `json:"model" yaml:"model"`
+	APIKey        string `json:"api_key" yaml:"api_key"`
+	APIBase       string `json:"api_base" yaml:"api_base"`
 	// OllamaBase is used for the default profile when no API key is set.
 	OllamaBase string `json:"ollama_base" yaml:"ollama_base"`
 	// LockDuration is how long the engine reserves a delivered job for this
@@ -53,19 +62,23 @@ type Config struct {
 
 func defaults() *Config {
 	return &Config{
-		Workers:      strings.Join([]string{llm.JobType, shellexec.JobType}, ","),
-		EngineREST:   "http://localhost:8080",
-		EngineGRPC:   "localhost:9090",
-		ExecRoot:     ".",
-		Model:        "gpt-4o-mini",
-		APIBase:      "https://api.openai.com/v1",
-		OllamaBase:   "http://localhost:11434/v1",
-		LockDuration: Duration(worker.DefaultLockDuration),
-		JournalLease: Duration(journal.DefaultLease),
-		LogLevel:     "info",
+		Workers:       strings.Join([]string{llm.JobType, shellexec.JobType}, ","),
+		EngineREST:    "http://localhost:8080",
+		EngineGRPC:    "localhost:9090",
+		ExecRoot:      ".",
+		ExecWorkspace: "shared",
+		Model:         "gpt-4o-mini",
+		APIBase:       "https://api.openai.com/v1",
+		OllamaBase:    "http://localhost:11434/v1",
+		LockDuration:  Duration(worker.DefaultLockDuration),
+		JournalLease:  Duration(journal.DefaultLease),
+		LogLevel:      "info",
 	}
 }
 
+// loadFile reads the configuration from a file. A key the configuration does
+// not know is an error: a typo in a configuration file is a mistake which
+// must not pass silently.
 func loadFile(path string, cfg *Config) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -74,13 +87,21 @@ func loadFile(path string, cfg *Config) error {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".json":
-		return json.Unmarshal(b, cfg)
+		decoder := json.NewDecoder(bytes.NewReader(b))
+		decoder.DisallowUnknownFields()
+		return decoder.Decode(cfg)
 	case ".yaml", ".yml":
-		return yaml.Unmarshal(b, cfg)
+		decoder := yaml.NewDecoder(bytes.NewReader(b))
+		decoder.KnownFields(true)
+		return decoder.Decode(cfg)
 	default:
 		// try yaml then json
-		if err := yaml.Unmarshal(b, cfg); err != nil {
-			return json.Unmarshal(b, cfg)
+		decoder := yaml.NewDecoder(bytes.NewReader(b))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(cfg); err != nil {
+			jsonDecoder := json.NewDecoder(bytes.NewReader(b))
+			jsonDecoder.DisallowUnknownFields()
+			return jsonDecoder.Decode(cfg)
 		}
 		return nil
 	}
@@ -100,6 +121,7 @@ func FromFlags(args []string) (*Config, error) {
 		engineREST    = cfg.EngineREST
 		engineGRPC    = cfg.EngineGRPC
 		execRoot      = cfg.ExecRoot
+		execWorkspace = cfg.ExecWorkspace
 		model         = cfg.Model
 		apiKey        = cfg.APIKey
 		apiBase       = cfg.APIBase
@@ -118,6 +140,7 @@ func FromFlags(args []string) (*Config, error) {
 	fs.StringVar(&engineREST, "engine-rest", engineREST, "engine REST URL")
 	fs.StringVar(&engineGRPC, "engine-grpc", engineGRPC, "engine gRPC URL")
 	fs.StringVar(&execRoot, "exec-root", execRoot, "workspace directory for exec-command-v1 jobs")
+	fs.StringVar(&execWorkspace, "exec-workspace", execWorkspace, "how the instances share the exec root: shared or instance")
 	fs.StringVar(&model, "model", model, "model")
 	fs.StringVar(&apiKey, "api-key", apiKey, "api key")
 	fs.StringVar(&apiBase, "api-base", apiBase, "OpenAI-compatible API base URL")
@@ -130,6 +153,12 @@ func FromFlags(args []string) (*Config, error) {
 	fs.StringVar(&logLevel, "log-level", logLevel, "lowest level the server logs: debug, info, warn or error")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
+	}
+	if configFile == "" {
+		// The configuration of a directory is the file in it.
+		if _, err := os.Stat(defaultConfigFile); err == nil {
+			configFile = defaultConfigFile
+		}
 	}
 	if configFile != "" {
 		if err := loadFile(configFile, cfg); err != nil {
@@ -149,6 +178,9 @@ func FromFlags(args []string) (*Config, error) {
 	}
 	if explicit["exec-root"] {
 		cfg.ExecRoot = execRoot
+	}
+	if explicit["exec-workspace"] {
+		cfg.ExecWorkspace = execWorkspace
 	}
 	if explicit["model"] {
 		cfg.Model = model

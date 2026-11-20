@@ -89,6 +89,11 @@ Treat it as a tool the process deliberately invokes, not a security boundary. Th
 no profile file, so the environment of a command does not depend on the files in the
 workspace.
 
+With `exec_workspace: instance` every instance gets a directory of its own under the
+`exec_root`, so the instances do not write into each other's files; the steps of one instance
+still share their directory. With `exec_workspace: shared` (the default) every command runs
+in the `exec_root` itself. The directories of the instances are not cleaned up.
+
 Input variable `exec_request`:
 
 ```json

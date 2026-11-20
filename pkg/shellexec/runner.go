@@ -43,6 +43,13 @@ func NewRunner(workspace string) (*Runner, error) {
 }
 
 func (r *Runner) Run(ctx context.Context, command string, timeout time.Duration) (*RunResult, error) {
+	return r.RunIn(ctx, r.WorkspaceRoot, command, timeout)
+}
+
+// RunIn runs a command in the given directory. The directory is the working
+// directory and the home of the command, so a command which writes to ~
+// writes there and not into the workspace of another run.
+func (r *Runner) RunIn(ctx context.Context, dir, command string, timeout time.Duration) (*RunResult, error) {
 	if command == "" || containsNUL(command) {
 		return nil, fmt.Errorf("command must be a nonempty string without NUL")
 	}
@@ -66,10 +73,10 @@ func (r *Runner) Run(ctx context.Context, command string, timeout time.Duration)
 	// in the working directory. The environment below is the whole
 	// environment.
 	cmd := exec.Command("bash", "--noprofile", "--norc", "-c", command)
-	cmd.Dir = r.WorkspaceRoot
+	cmd.Dir = dir
 	cmd.Stdin = nil
 	cmd.Env = []string{
-		"HOME=" + r.WorkspaceRoot,
+		"HOME=" + dir,
 		"PATH=/usr/local/bin:/usr/bin:/bin",
 		"LANG=C.UTF-8",
 		"LC_ALL=C.UTF-8",
