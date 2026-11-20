@@ -159,16 +159,26 @@ started with a `journal_dir`:
 
 * the step is keyed on the engine job key;
 * a claim on the step keeps two workers from running it at the same time — the
-  worker which holds the claim is the only one which runs it, the others fail
-  the job so the engine hands it out again;
+  worker which holds the claim is the only one which runs it;
 * the result of the step is stored next to the key, and a redelivery returns
   the stored result instead of running the step again;
 * a step which *failed* is not stored: the next delivery runs it again.
 
+A redelivery which finds the step running **waits for its result** instead of
+failing. The work is bounded, and a failure here would spend a retry of the
+job for a step which is about to finish — with the default retry budget that
+ends the instance with an incident. The waiter takes the step over when the
+claim of the holder expires: the holder is presumed gone.
+
 The `file` journal keeps its records in a directory, so they survive the
-restart of a worker and are shared by the workers of one node. A directory on
-a filesystem of several nodes needs a store all of them reach, which decides
-the winner of a claim in one place.
+restart of a worker and are shared by the workers of one node. The takeover of
+an expired claim is serialized, so two workers cannot take the same claim
+over and both run the work. A directory on a filesystem of several nodes needs
+a store all of them reach, which decides the winner of a claim in one place.
+
+The `journal_lease` must outlast the longest job the worker runs, the server
+refuses to start otherwise: a claim which expires while its holder is still
+working lets another worker take the step over, and the work runs twice.
 
 What the journal cannot close: a worker which dies between the side effect
 and the stored result leaves a step whose outcome is unknown. The claim

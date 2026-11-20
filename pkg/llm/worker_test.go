@@ -332,6 +332,53 @@ func TestJournalKeysOnTheJobKey(t *testing.T) {
 	}
 }
 
+// A redelivery which finds the step running waits for its result. Failing
+// would spend a retry of the job, and with the default retry budget that
+// ends the instance with an incident — while the work is about to finish.
+func TestRedeliveryWaitsForTheRunningStep(t *testing.T) {
+	calls := 0
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		close(started)
+		<-release
+		io.WriteString(w, `{"choices":[{"message":{"content":"hello"}}]}`)
+	}))
+	defer srv.Close()
+	guard := journal.NewGuard(journal.NewMemory(), "worker-a", time.Minute)
+	worker := NewWorker(map[string]Profile{"default": {BaseURL: srv.URL, Model: "server-model"}}, guard)
+	raw, err := json.Marshal(map[string]any{"llm_request": basicInput()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := int64(99)
+	job := &proto.WaitingJob{InputVariables: raw, Key: &key}
+	first := make(chan *zenclient.WorkerError, 1)
+	go func() {
+		_, workerErr := worker.Handle(context.Background(), job)
+		first <- workerErr
+	}()
+	<-started
+	// The redelivery finds the step running.
+	second := make(chan *zenclient.WorkerError, 1)
+	go func() {
+		_, workerErr := worker.Handle(context.Background(), job)
+		second <- workerErr
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if workerErr := <-first; workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	if workerErr := <-second; workerErr != nil {
+		t.Fatalf("the redelivery failed instead of waiting: %v", workerErr)
+	}
+	if calls != 1 {
+		t.Fatalf("the provider was called %d times", calls)
+	}
+}
+
 // The provider call must survive a broken job stream. The engine cancels the
 // job context when the stream to the worker breaks and hands the job out
 // again; a call which dies with the stream is a paid-for call whose answer

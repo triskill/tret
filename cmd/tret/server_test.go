@@ -42,6 +42,21 @@ func TestRegisterSelectedRefusesShortLock(t *testing.T) {
 	}
 }
 
+// The claim on a step must outlast the work it protects, or another worker
+// may take the step over while the first is still working on it.
+func TestJournalLeaseMustOutlastTheWork(t *testing.T) {
+	runtimes := map[string]time.Duration{llm.JobType: llm.MaxCallDuration}
+	if got := longestRuntime(runtimes); got != llm.MaxCallDuration {
+		t.Fatalf("longest runtime = %s", got)
+	}
+	if err := checkLease(time.Minute, runtimes); err == nil {
+		t.Fatal("a lease shorter than the work was accepted")
+	}
+	if err := checkLease(llm.MaxCallDuration+time.Second, runtimes); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestClientIDIsUniquePerProcess(t *testing.T) {
 	cfg := &config.Config{}
 	first := clientID(cfg)

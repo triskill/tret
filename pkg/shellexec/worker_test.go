@@ -193,6 +193,56 @@ func TestSharedWorkspace(t *testing.T) {
 	}
 }
 
+// A redelivery which finds the command running waits for its result. Failing
+// would spend a retry of the job, and with the default retry budget that
+// ends the instance with an incident — while the command is about to finish.
+func TestRedeliveryWaitsForTheRunningCommand(t *testing.T) {
+	dir := t.TempDir()
+	guard := journal.NewGuard(journal.NewMemory(), "worker-a", time.Minute)
+	w, err := NewWorker(dir, guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"exec_request": map[string]any{"command": "echo run >> count.txt", "timeout_sec": 30}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := int64(778)
+	job := &proto.WaitingJob{InputVariables: raw, Key: &key}
+	first := make(chan *zenclient.WorkerError, 1)
+	go func() {
+		_, workerErr := w.Handle(context.Background(), job)
+		first <- workerErr
+	}()
+	// Wait until the command has started.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(dir, "count.txt")); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	second := make(chan *zenclient.WorkerError, 1)
+	go func() {
+		_, workerErr := w.Handle(context.Background(), job)
+		second <- workerErr
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if workerErr := <-first; workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	if workerErr := <-second; workerErr != nil {
+		t.Fatalf("the redelivery failed instead of waiting: %v", workerErr)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "count.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "run") != 1 {
+		t.Fatalf("the command ran %d times: %q", strings.Count(string(data), "run"), string(data))
+	}
+}
+
 func TestCommandSurvivesCancelledJobContext(t *testing.T) {
 	w, err := NewWorker(t.TempDir())
 	if err != nil {

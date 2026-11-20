@@ -69,20 +69,31 @@ func runServer(args []string) {
 	// out again repeats its result instead of its work. It is keyed on the
 	// engine job key.
 	id := clientID(cfg)
+	runtimes := map[string]time.Duration{llm.JobType: llm.MaxCallDuration}
+	if containsType(cfg.Workers, shellexec.JobType) {
+		runtimes[shellexec.JobType] = shellexec.MaxTimeout
+	}
 	var guard *journal.Guard
 	if cfg.JournalDir != "" {
+		// The claim on a step must outlast the work it protects, or another
+		// worker may take the step over while the first is still working on
+		// it, and the work runs twice.
+		longest := longestRuntime(runtimes)
+		if err := checkLease(cfg.JournalLease.Duration(), runtimes); err != nil {
+			slog.Error("the journal lease is unusable", "err", err, "lease", cfg.JournalLease.String(), "longest_job", longest.String())
+			os.Exit(1)
+		}
 		store, err := journal.NewFile(cfg.JournalDir)
 		if err != nil {
-			fmt.Println(err)
+			slog.Error("the journal is unusable", "err", err)
 			os.Exit(1)
 		}
 		guard = journal.NewGuard(store, id, cfg.JournalLease.Duration())
-		slog.Info("journal enabled", "dir", store.Dir())
+		slog.Info("journal enabled", "dir", store.Dir(), "lease", cfg.JournalLease.String())
 	}
 
 	llmWorker := llm.NewWorker(profiles, guard)
 	builtins := map[string]zen.WorkerFunc{llm.JobType: llmWorker.Handle}
-	runtimes := map[string]time.Duration{llm.JobType: llm.MaxCallDuration}
 	if containsType(cfg.Workers, shellexec.JobType) {
 		shellWorker, err := shellexec.NewWorker(cfg.ExecRoot, guard)
 		if err != nil {
@@ -98,7 +109,6 @@ func runServer(args []string) {
 			os.Exit(1)
 		}
 		builtins[shellexec.JobType] = shellWorker.Handle
-		runtimes[shellexec.JobType] = shellexec.MaxTimeout
 	}
 	registry := worker.NewRegistry()
 	if err := registerSelected(registry, builtins, runtimes, cfg); err != nil {
@@ -157,6 +167,29 @@ func containsType(selected, typ string) bool {
 		}
 	}
 	return false
+}
+
+// longestRuntime returns the longest a served worker may run.
+func longestRuntime(runtimes map[string]time.Duration) time.Duration {
+	longest := time.Duration(0)
+	for _, runtime := range runtimes {
+		if runtime > longest {
+			longest = runtime
+		}
+	}
+	return longest
+}
+
+// checkLease reports whether the claim on a step may expire while the work
+// it protects is still running. The lease must outlast the longest job of
+// the workers, or another worker takes the step over and the work runs
+// twice.
+func checkLease(lease time.Duration, runtimes map[string]time.Duration) error {
+	longest := longestRuntime(runtimes)
+	if lease <= longest {
+		return fmt.Errorf("the lease %s must outlast the longest job %s", lease, longest)
+	}
+	return nil
 }
 
 // clientID names this worker at the engine. It must be unique per process:

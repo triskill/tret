@@ -36,11 +36,24 @@ func (m *Memory) Acquire(_ context.Context, key Key, owner string, lease time.Du
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	name := key.String()
-	if held, ok := m.claims[name]; ok && time.Now().Before(held.until) && held.owner != owner {
+	if held, ok := m.claims[name]; ok && time.Now().Before(held.until) {
+		// A live claim is refused whoever holds it: the same worker may
+		// hold the step in another delivery of the same job, and that
+		// delivery must not run the work a second time.
 		return false, nil
 	}
 	m.claims[name] = claim{owner: owner, until: time.Now().Add(lease)}
 	return true, nil
+}
+
+func (m *Memory) Claim(_ context.Context, key Key) (ClaimInfo, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	held, ok := m.claims[key.String()]
+	if !ok {
+		return ClaimInfo{}, false, nil
+	}
+	return ClaimInfo{Owner: held.owner, Until: held.until}, true, nil
 }
 
 func (m *Memory) Release(_ context.Context, key Key, owner string) error {

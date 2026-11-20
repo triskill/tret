@@ -2,8 +2,11 @@ package journal
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -135,6 +138,51 @@ func TestFileJournalTakesOverAnExpiredClaim(t *testing.T) {
 	claimed, err := second.Acquire(ctx, key, "owner-b", time.Minute)
 	if err != nil || !claimed {
 		t.Fatalf("the claim of a dead worker was not taken over: claimed=%v err=%v", claimed, err)
+	}
+}
+
+// Two workers which take the same expired claim over must not both win: the
+// takeover is serialized, or the second one removes the claim the first one
+// has just taken and both run the work.
+func TestFileJournalTakeoverIsAtomic(t *testing.T) {
+	for round := 0; round < 50; round++ {
+		dir := t.TempDir()
+		first, err := NewFile(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		key := Key{JobKey: int64(200 + round)}
+		// A claim whose holder died.
+		if claimed, err := first.Acquire(ctx, key, "owner-dead", time.Millisecond); err != nil || !claimed {
+			t.Fatalf("claimed=%v err=%v", claimed, err)
+		}
+		time.Sleep(5 * time.Millisecond)
+		var winners atomic.Int32
+		var group sync.WaitGroup
+		for i := 0; i < 2; i++ {
+			group.Add(1)
+			go func(n int) {
+				defer group.Done()
+				contender, err := NewFile(dir)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				claimed, err := contender.Acquire(ctx, key, fmt.Sprintf("owner-%d", n), time.Minute)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if claimed {
+					winners.Add(1)
+				}
+			}(i)
+		}
+		group.Wait()
+		if winners.Load() != 1 {
+			t.Fatalf("round %d: %d workers took the claim over", round, winners.Load())
+		}
 	}
 }
 

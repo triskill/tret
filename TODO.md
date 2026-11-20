@@ -74,8 +74,10 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
       → claim → execute → store the result; a redelivery returns the
       memoized result. Plan: `futurePlans.md` §2.1. (S1)
       **Done**: `pkg/journal` with a file store (one node) and an in-memory
-      store; both built-in workers use it when `journal_dir` is set. A store
-      several nodes can reach is still open.
+      store; both built-in workers use it when `journal_dir` is set. The
+      claim of a step is waited for instead of failed, the takeover of an
+      expired claim is serialized, and the lease must outlast the work.
+      A store several nodes can reach is still open.
 - [x] **Error taxonomy.** Every failure carried an error code, so the
       engine never spent a retry and the BPMN `retries` attribute was dead.
       Now: invalid request / invalid output -> BPMN error; transient
