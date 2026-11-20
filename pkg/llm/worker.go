@@ -15,6 +15,7 @@ import (
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"github.com/triskill/tret/pkg/journal"
 	"github.com/triskill/tret/pkg/worker"
 )
 
@@ -29,14 +30,22 @@ const MaxCallDuration = 120 * time.Second
 type Worker struct {
 	profiles map[string]Profile
 	Client   *Client
+	guard    *journal.Guard
 }
 
-func NewWorker(profiles map[string]Profile) *Worker {
+// NewWorker returns a worker for the given profiles. The guard makes a
+// redelivery of a job repeat its result instead of calling the provider
+// again; a worker without one calls the provider once per delivery.
+func NewWorker(profiles map[string]Profile, guards ...*journal.Guard) *Worker {
 	copy := make(map[string]Profile, len(profiles))
 	for name, profile := range profiles {
 		copy[name] = profile
 	}
-	return &Worker{profiles: copy, Client: NewClient()}
+	var guard *journal.Guard
+	if len(guards) > 0 {
+		guard = guards[0]
+	}
+	return &Worker{profiles: copy, Client: NewClient(), guard: guard}
 }
 
 // Error codes are catchable BPMN errors. If the process has no matching error
@@ -210,6 +219,14 @@ func providerFailure(err error) (map[string]any, *zenclient.WorkerError) {
 	return failure("provider_error", err)
 }
 
+// invalidOutput reports an answer which does not match the schema the
+// process asked for. It is a BPMN error, not a technical failure.
+type invalidOutput struct{ err error }
+
+func (e *invalidOutput) Error() string { return e.err.Error() }
+
+func (e *invalidOutput) Unwrap() error { return e.err }
+
 func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]any, *zenclient.WorkerError) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(job.GetInputVariables(), &envelope); err != nil {
@@ -235,6 +252,29 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || strings.TrimSpace(profile.Model) == "" {
 		return failure("invalid_input", fmt.Errorf("invalid server model profile %q", input.ModelProfile))
 	}
+	// The call is the step. The journal makes a redelivery of the job repeat
+	// its result instead of calling the provider a second time.
+	out, err := w.guard.Do(ctx, journal.Key{JobKey: job.GetKey()}, func() (map[string]any, error) {
+		return w.call(ctx, profile, input, schema)
+	})
+	if err != nil {
+		if errors.Is(err, journal.ErrHeld) {
+			// Another worker is running the step: let the engine hand the
+			// job out again instead of calling the provider twice.
+			return transient(err)
+		}
+		var invalid *invalidOutput
+		if errors.As(err, &invalid) {
+			return failure("invalid_output", err)
+		}
+		return providerFailure(err)
+	}
+	return out, nil
+}
+
+// call makes one provider call and turns the answer into the result of the
+// job.
+func (w *Worker) call(ctx context.Context, profile Profile, input Request, schema *jsonschema.Schema) (map[string]any, error) {
 	// The provider call must not die with the job stream: the engine
 	// redelivers the job after a reconnect, and an interrupted call is a
 	// paid-for call whose answer is thrown away.
@@ -242,18 +282,18 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	defer cancel()
 	result, err := w.Client.Complete(callCtx, profile, input)
 	if err != nil {
-		return providerFailure(err)
+		return nil, err
 	}
 	if schema != nil {
 		if result.FinishReason == "length" || result.FinishReason == "content_filter" {
-			return failure("invalid_output", fmt.Errorf("structured completion ended with %s", result.FinishReason))
+			return nil, &invalidOutput{fmt.Errorf("structured completion ended with %s", result.FinishReason)}
 		}
 		var value any
 		if err := json.Unmarshal([]byte(result.Content), &value); err != nil {
-			return failure("invalid_output", fmt.Errorf("completion is not JSON: %w", err))
+			return nil, &invalidOutput{fmt.Errorf("completion is not JSON: %w", err)}
 		}
 		if err := schema.Validate(value); err != nil {
-			return failure("invalid_output", fmt.Errorf("completion does not match output_schema: %w", err))
+			return nil, &invalidOutput{fmt.Errorf("completion does not match output_schema: %w", err)}
 		}
 		result.StructuredOutput = value
 	}
@@ -261,11 +301,11 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	// the engine's variable encoder.
 	encoded, err := json.Marshal(result)
 	if err != nil {
-		return failure("invalid_output", err)
+		return nil, &invalidOutput{err}
 	}
 	var value map[string]any
 	if err := json.Unmarshal(encoded, &value); err != nil {
-		return failure("invalid_output", err)
+		return nil, &invalidOutput{err}
 	}
 	if schema != nil {
 		value["structured_output"] = result.StructuredOutput

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/triskill/tret/pkg/journal"
 	"github.com/triskill/tret/pkg/llm"
 	"github.com/triskill/tret/pkg/shellexec"
 	"github.com/triskill/tret/pkg/worker"
@@ -38,6 +39,13 @@ type Config struct {
 	// ClientID names this worker at the engine. It must be unique per
 	// process; the default is derived from the host and the pid.
 	ClientID string `json:"client_id" yaml:"client_id"`
+	// JournalDir is the directory the journal of the finished steps lives
+	// in. An empty directory turns the journal off, and a job the engine
+	// hands out again repeats its work instead of its result.
+	JournalDir string `json:"journal_dir" yaml:"journal_dir"`
+	// JournalLease is how long a claim on a step lasts. A worker which dies
+	// while it holds a step releases it after this time.
+	JournalLease Duration `json:"journal_lease" yaml:"journal_lease"`
 }
 
 func defaults() *Config {
@@ -50,6 +58,7 @@ func defaults() *Config {
 		APIBase:      "https://api.openai.com/v1",
 		OllamaBase:   "http://localhost:11434/v1",
 		LockDuration: Duration(worker.DefaultLockDuration),
+		JournalLease: Duration(journal.DefaultLease),
 	}
 }
 
@@ -94,6 +103,8 @@ func FromFlags(args []string) (*Config, error) {
 		lockDuration  = time.Duration(cfg.LockDuration)
 		maxActiveJobs = cfg.MaxActiveJobs
 		clientID      = cfg.ClientID
+		journalDir    = cfg.JournalDir
+		journalLease  = time.Duration(cfg.JournalLease)
 	)
 
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
@@ -109,6 +120,8 @@ func FromFlags(args []string) (*Config, error) {
 	fs.DurationVar(&lockDuration, "lock-duration", lockDuration, "how long the engine reserves a delivered job for this worker")
 	fs.IntVar(&maxActiveJobs, "max-active-jobs", maxActiveJobs, "jobs of one type this worker holds at once (0: engine default)")
 	fs.StringVar(&clientID, "client-id", clientID, "name of this worker at the engine (default: host and pid)")
+	fs.StringVar(&journalDir, "journal-dir", journalDir, "directory the journal of the finished steps lives in (empty: off)")
+	fs.DurationVar(&journalLease, "journal-lease", journalLease, "how long a claim on a step lasts")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -151,6 +164,12 @@ func FromFlags(args []string) (*Config, error) {
 	}
 	if explicit["client-id"] {
 		cfg.ClientID = clientID
+	}
+	if explicit["journal-dir"] {
+		cfg.JournalDir = journalDir
+	}
+	if explicit["journal-lease"] {
+		cfg.JournalLease = Duration(journalLease)
 	}
 	return cfg, nil
 }

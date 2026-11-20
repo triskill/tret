@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
+	"github.com/triskill/tret/pkg/journal"
 )
 
 var _ zenclient.WorkerFunc = NewWorker(nil).Handle
@@ -267,6 +269,66 @@ func TestNativeContentPartsAndBooleanToolSchema(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatal(calls)
+	}
+}
+
+// A job the engine hands out again must repeat its result, not call the
+// provider a second time. The journal is keyed on the engine job key.
+func TestRedeliveryRepeatsTheResult(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		io.WriteString(w, `{"choices":[{"message":{"content":"hello"}}]}`)
+	}))
+	defer srv.Close()
+	guard := journal.NewGuard(journal.NewMemory(), "worker-a", time.Minute)
+	worker := NewWorker(map[string]Profile{"default": {BaseURL: srv.URL, Model: "server-model"}}, guard)
+	raw, err := json.Marshal(map[string]any{"llm_request": basicInput()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := int64(4242)
+	job := &proto.WaitingJob{InputVariables: raw, Key: &key}
+	first, workerErr := worker.Handle(context.Background(), job)
+	if workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	second, workerErr := worker.Handle(context.Background(), job)
+	if workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	if calls != 1 {
+		t.Fatalf("the provider was called %d times", calls)
+	}
+	firstContent := first["llm_result"].(map[string]any)["content"]
+	secondContent := second["llm_result"].(map[string]any)["content"]
+	if firstContent != "hello" || secondContent != "hello" {
+		t.Fatalf("first=%v second=%v", first, second)
+	}
+}
+
+// Another job is another step: it calls the provider again.
+func TestJournalKeysOnTheJobKey(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		io.WriteString(w, `{"choices":[{"message":{"content":"hello"}}]}`)
+	}))
+	defer srv.Close()
+	guard := journal.NewGuard(journal.NewMemory(), "worker-a", time.Minute)
+	worker := NewWorker(map[string]Profile{"default": {BaseURL: srv.URL, Model: "server-model"}}, guard)
+	raw, err := json.Marshal(map[string]any{"llm_request": basicInput()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []int64{1, 2} {
+		k := key
+		if _, err := worker.Handle(context.Background(), &proto.WaitingJob{InputVariables: raw, Key: &k}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("the provider was called %d times", calls)
 	}
 }
 

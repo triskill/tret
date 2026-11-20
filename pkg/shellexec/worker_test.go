@@ -3,10 +3,15 @@ package shellexec
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
+	"github.com/triskill/tret/pkg/journal"
 )
 
 var _ zenclient.WorkerFunc = (*Worker)(nil).Handle
@@ -93,6 +98,42 @@ func TestWorkerTimeout(t *testing.T) {
 // context when the stream to the worker breaks and hands the job out again;
 // a command killed halfway is a partially applied side effect which then runs
 // a second time.
+// A job the engine hands out again must repeat its result, not run the
+// command a second time.
+func TestRedeliveryRepeatsTheResult(t *testing.T) {
+	dir := t.TempDir()
+	guard := journal.NewGuard(journal.NewMemory(), "worker-a", time.Minute)
+	w, err := NewWorker(dir, guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"exec_request": map[string]any{"command": "echo run >> count.txt", "timeout_sec": 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := int64(777)
+	job := &proto.WaitingJob{InputVariables: raw, Key: &key}
+	first, workerErr := w.Handle(context.Background(), job)
+	if workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	second, workerErr := w.Handle(context.Background(), job)
+	if workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	if first["exec_result"].(map[string]any)["stdout"] != second["exec_result"].(map[string]any)["stdout"] {
+		t.Fatalf("first=%v second=%v", first, second)
+	}
+	// The command appends one line per run: it ran once.
+	data, err := os.ReadFile(filepath.Join(dir, "count.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "run") != 1 {
+		t.Fatalf("the command ran %d times: %q", strings.Count(string(data), "run"), string(data))
+	}
+}
+
 func TestCommandSurvivesCancelledJobContext(t *testing.T) {
 	w, err := NewWorker(t.TempDir())
 	if err != nil {

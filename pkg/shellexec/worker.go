@@ -7,12 +7,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/pbinitiative/zenbpm/pkg/zenclient"
 	"github.com/pbinitiative/zenbpm/pkg/zenclient/proto"
+	"github.com/triskill/tret/pkg/journal"
 	"github.com/triskill/tret/pkg/worker"
 )
 
@@ -43,14 +45,25 @@ type Request struct {
 // Worker executes jobs in the server-owned workspace root. Commands run
 // with the server's permissions; there is no sandbox. The engine may
 // redeliver a job, so treat commands as at-least-once.
-type Worker struct{ Runner *Runner }
+type Worker struct {
+	Runner *Runner
+	guard  *journal.Guard
+}
 
-func NewWorker(workspaceRoot string) (*Worker, error) {
+// NewWorker returns a worker which runs commands in the workspace root. The
+// guard makes a redelivery of a job repeat its result instead of running the
+// command a second time; a worker without one runs the command once per
+// delivery.
+func NewWorker(workspaceRoot string, guards ...*journal.Guard) (*Worker, error) {
 	runner, err := NewRunner(workspaceRoot)
 	if err != nil {
 		return nil, err
 	}
-	return &Worker{Runner: runner}, nil
+	var guard *journal.Guard
+	if len(guards) > 0 {
+		guard = guards[0]
+	}
+	return &Worker{Runner: runner, guard: guard}, nil
 }
 
 var _ zenclient.WorkerFunc = (*Worker)(nil).Handle
@@ -58,6 +71,13 @@ var _ zenclient.WorkerFunc = (*Worker)(nil).Handle
 func invalid(err error) (map[string]any, *zenclient.WorkerError) {
 	zero := int32(0)
 	return nil, &zenclient.WorkerError{Err: err, ErrorCode: "invalid_input", Retries: &zero}
+}
+
+// transient reports a failure which another attempt may survive. It carries
+// no error code: the engine then spends one of the job's retries and hands
+// the job out again after the backoff of the task definition.
+func transient(err error) (map[string]any, *zenclient.WorkerError) {
+	return nil, &zenclient.WorkerError{Err: err}
 }
 
 func strictDecode(raw json.RawMessage, into any) error {
@@ -103,24 +123,36 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	// applied side effect which then runs a second time.
 	runCtx, cancel := worker.Detach(ctx, timeout+execGrace)
 	defer cancel()
-	result, err := w.Runner.Run(runCtx, input.Command, timeout)
+	// The command is the step. The journal makes a redelivery of the job
+	// repeat its result instead of running the command a second time.
+	out, err := w.guard.Do(ctx, journal.Key{JobKey: job.GetKey()}, func() (map[string]any, error) {
+		result, err := w.Runner.Run(runCtx, input.Command, timeout)
+		if err != nil {
+			// Run errors only before the process starts (size, encoding,
+			// validation); they never mean an unknown outcome.
+			return nil, err
+		}
+		duration := int64(result.Duration / time.Millisecond)
+		if result.Duration < 0 {
+			duration = 0
+		}
+		return map[string]any{"exec_result": map[string]any{
+			"exit_code":   result.ExitCode,
+			"stdout":      result.Stdout,
+			"stderr":      result.Stderr,
+			"timed_out":   result.TimedOut,
+			"cancelled":   result.Cancelled,
+			"truncated":   result.Truncated,
+			"duration_ms": duration,
+		}}, nil
+	})
 	if err != nil {
-		// Run errors only before the process starts (size, encoding,
-		// validation); they never mean an unknown outcome.
+		if errors.Is(err, journal.ErrHeld) {
+			// Another worker is running the command: let the engine hand the
+			// job out again instead of running it twice.
+			return transient(err)
+		}
 		return invalid(err)
 	}
-	duration := int64(result.Duration / time.Millisecond)
-	if result.Duration < 0 {
-		duration = 0
-	}
-	out := map[string]any{"exec_result": map[string]any{
-		"exit_code":   result.ExitCode,
-		"stdout":      result.Stdout,
-		"stderr":      result.Stderr,
-		"timed_out":   result.TimedOut,
-		"cancelled":   result.Cancelled,
-		"truncated":   result.Truncated,
-		"duration_ms": duration,
-	}}
 	return out, nil
 }

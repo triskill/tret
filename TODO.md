@@ -55,33 +55,45 @@ This file is the *actionable* list. Everything else lives in those two.
 Do these before any new capability, any scaling work, and any agent-loop
 example. Each item cites its finding in `docs/mistakesToFix.md`.
 
-- [ ] **Detach the side effect from the job stream.** `pkg/llm/worker.go:202`
-      and `pkg/shellexec/worker.go:91` use the gRPC stream context; a
-      reconnect cancels the running call/command. Use
-      `context.WithoutCancel(ctx)` + an explicit deadline. (S1)
-- [ ] **Lock discipline.** One registration helper that always sets a lock
+- [x] **Detach the side effect from the job stream.** `pkg/llm/worker.go:202`
+      and `pkg/shellexec/worker.go:91` used the gRPC stream context; a
+      reconnect cancelled the running call/command and the job was
+      redelivered. Now `worker.Detach` gives the work its own deadline.
+      (S1)
+- [x] **Lock discipline.** One registration helper that always sets a lock
       duration; derive it from the worker's worst-case runtime; renew with
       `ExtendDeliveryLock`; validate at startup. The engine default (30 s) is
-      shorter than tret's own 120 s budget, so a slow model is executed
+      shorter than tret's own 120 s budget, so a slow model was executed
       several times over. (S1)
-- [ ] **Idempotency journal** keyed on the **engine job key** (never on
+      **Done**: `pkg/worker.Spec` refuses a lock which does not outlast the
+      declared runtime, `worker.Subscribe` is the safe path, the server
+      validates the configured lock. The renewal with `ExtendDeliveryLock`
+      is still open.
+- [x] **Idempotency journal** keyed on the **engine job key** (never on
       attempt or delivery token — the engine docs say so explicitly). Look up
-      → lease → execute → commit the result; a redelivery returns the
-      memoized result. Pluggable store: SQLite (single node), Postgres
-      (multi node). Plan: `futurePlans.md` §2.1. (S1)
-- [ ] **Error taxonomy.** Today every failure carries an error code, so the
-      engine never spends a retry and the BPMN `retries` attribute is dead.
-      Split: invalid request / invalid output -> BPMN error; transient
+      → claim → execute → store the result; a redelivery returns the
+      memoized result. Plan: `futurePlans.md` §2.1. (S1)
+      **Done**: `pkg/journal` with a file store (one node) and an in-memory
+      store; both built-in workers use it when `journal_dir` is set. A store
+      several nodes can reach is still open.
+- [x] **Error taxonomy.** Every failure carried an error code, so the
+      engine never spent a retry and the BPMN `retries` attribute was dead.
+      Now: invalid request / invalid output -> BPMN error; transient
       (429, 5xx, dial timeout) -> no error code, the engine retries with
-      `retryBackoff`. Classify the provider status in `pkg/llm/client.go`.
+      `retryBackoff`. (S2)
+      Verified against the live engine: a provider which answers 429 twice
+      and then succeeds runs three times and the instance completes.
+- [x] **Config validation at startup.** An invalid server profile was
+      reported as `invalid_input` (the process's fault) and
+      `internal/config.FromFlags` called `os.Exit`. Now the profiles are
+      validated at boot and the configuration is reported as an error.
       (S2)
-- [ ] **Config validation at startup.** An invalid server profile is reported
-      as `invalid_input` (the process's fault); `internal/config.FromFlags`
-      calls `os.Exit`; the "no api key -> Ollama" heuristic surprises.
-      Validate profiles/base URLs/exec root at boot; return errors instead of
-      exiting. (S2)
+      Still open: the "no api key -> Ollama" heuristic surprises.
 - [ ] **`exec-command-v1` hardening.** Per-job workspace instead of the
-      shared `exec_root`, `bash --noprofile --norc -c`, minimal env. (S2)
+      shared `exec_root`, minimal env. (S2)
+      **Done**: the shell reads no profile file, so the environment of a
+      command does not depend on the files in the workspace. The per-job
+      workspace is still open.
 
 ## Open — Phase 1: state outside the engine
 
@@ -111,11 +123,14 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
 
 ## Open — Phase 3: horizontal scale
 
-- [ ] **Unique client ID.** `tret-<pid>` collides across containers (PID 1),
+- [x] **Unique client ID.** `tret-<pid>` collides across containers (PID 1),
       which collapses replicas into one round-robin entry — one replica
-      silently gets no jobs. Use host + pid + random. (S4)
+      silently gets no jobs. (S4)
+      **Done**: host + pid + a random suffix, configurable with `client_id`.
 - [ ] **Backpressure.** Set `WithMaxActiveJobs` explicitly (engine default:
       10 per subscription) and add a client-side semaphore.
+      **Done**: `max_active_jobs` is configurable. The client-side semaphore
+      is still open.
 - [ ] **Health/readiness** endpoints and `tret doctor`.
 - [ ] **Per-job workspace / shared store** so replicas are interchangeable;
       secrets from a secret store, not a config file.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/triskill/tret/internal/config"
 	"github.com/triskill/tret/internal/zen"
+	"github.com/triskill/tret/pkg/journal"
 	"github.com/triskill/tret/pkg/llm"
 	"github.com/triskill/tret/pkg/shellexec"
 	"github.com/triskill/tret/pkg/worker"
@@ -57,11 +58,26 @@ func runServer(args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	llmWorker := llm.NewWorker(profiles)
+	// The journal remembers the outcome of a step, so a job the engine hands
+	// out again repeats its result instead of its work. It is keyed on the
+	// engine job key.
+	id := clientID(cfg)
+	var guard *journal.Guard
+	if cfg.JournalDir != "" {
+		store, err := journal.NewFile(cfg.JournalDir)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		guard = journal.NewGuard(store, id, cfg.JournalLease.Duration())
+		fmt.Printf("journal: %s\n", store.Dir())
+	}
+
+	llmWorker := llm.NewWorker(profiles, guard)
 	builtins := map[string]zen.WorkerFunc{llm.JobType: llmWorker.Handle}
 	runtimes := map[string]time.Duration{llm.JobType: llm.MaxCallDuration}
 	if containsType(cfg.Workers, shellexec.JobType) {
-		shellWorker, err := shellexec.NewWorker(cfg.ExecRoot)
+		shellWorker, err := shellexec.NewWorker(cfg.ExecRoot, guard)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -81,7 +97,7 @@ func runServer(args []string) {
 		conn, err := zen.DialGRPC(cfg.EngineGRPC)
 		if err == nil {
 			g := zen.NewGrpcClient(conn)
-			_, err = g.RegisterWorkerWithOptions(ctx, clientID(cfg), registry.Handle, options...)
+			_, err = g.RegisterWorkerWithOptions(ctx, id, registry.Handle, options...)
 			if err == nil {
 				defer conn.Close()
 			} else {

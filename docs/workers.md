@@ -146,7 +146,38 @@ the attempt and not on the delivery token: those two change per delivery, so
 an effect keyed on them runs again on every retry. Persist the result of the
 step next to the key and return the stored result when the job comes back;
 that is what turns a redelivery into a repeat instead of a second execution.
-The built-in workers do not do this yet.
+
+### The journal
+
+`pkg/journal` is that store. The built-in workers use it when the server is
+started with a `journal_dir`:
+
+* the step is keyed on the engine job key;
+* a claim on the step keeps two workers from running it at the same time — the
+  worker which holds the claim is the only one which runs it, the others fail
+  the job so the engine hands it out again;
+* the result of the step is stored next to the key, and a redelivery returns
+  the stored result instead of running the step again;
+* a step which *failed* is not stored: the next delivery runs it again.
+
+The `file` journal keeps its records in a directory, so they survive the
+restart of a worker and are shared by the workers of one node. A directory on
+a filesystem of several nodes needs a store all of them reach, which decides
+the winner of a claim in one place.
+
+What the journal cannot close: a worker which dies between the side effect
+and the stored result leaves a step whose outcome is unknown. The claim
+expires and the step runs again. The window is narrow, and it is the price of
+not having the effect and its record in one transaction.
+
+Without a journal the workers behave as they did before: the work of a
+redelivered job runs again.
+
+### Writing a worker
+
+A worker returns the concrete `*zenclient.WorkerError`, never an `error`
+interface: a nil `*WorkerError` in an `error` variable is not nil, and the
+job would be failed although it succeeded.
 
 ### Delivery and recovery
 
@@ -159,6 +190,8 @@ not a half-finished side effect.
 
 Idempotent workers should use an operation identity tied to the engine job
 and persist known results. Non-idempotent workers should stop for manual
-reconciliation on unknown outcomes. This POC provides no journal, fencing, or
-automatic safe replay. Resolving an incident is an operator action, not a
-guarantee that rerunning a side effect is safe.
+reconciliation on unknown outcomes. The journal of the built-in workers
+repeats the result of a redelivered job; it does not fence the effect, and
+it provides no automatic safe replay of a step whose outcome is unknown.
+Resolving an incident is an operator action, not a guarantee that rerunning a
+side effect is safe.

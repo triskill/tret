@@ -12,6 +12,24 @@ api_base: https://api.openai.com/v1
 # local Ollama OpenAI-compatible endpoint, used when api_key is empty:
 ollama_base: http://localhost:11434/v1
 
+# How long the engine reserves a delivered job for this worker. It must
+# outlast the longest job the worker runs (120 s for the built-in workers),
+# or the engine hands the job to a second worker while the first is busy.
+lock_duration: 5m
+# Jobs of one type this worker holds at once. 0 uses the engine default (10).
+max_active_jobs: 0
+# Name of this worker at the engine. It must be unique per process; the
+# default is the host name, the pid and a random suffix.
+# client_id: ""
+
+# Directory the journal of the finished steps lives in. A job the engine
+# hands out again repeats its result instead of running its work again.
+# Leave it empty to turn the journal off.
+# journal_dir: ./data/journal
+# How long a claim on a step lasts. A worker which dies while it holds a step
+# releases it after this time.
+journal_lease: 5m
+
 # Named profiles for llm-call-v1. Credentials stay server-side.
 # The default profile falls back to the model/api_* settings above if omitted.
 # model_profiles:
