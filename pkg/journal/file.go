@@ -15,19 +15,21 @@ import (
 
 const (
 	// gateTimeout bounds how long a worker waits for the gate which
-	// serializes the takeover of an expired claim.
+	// serializes the changes of a claim.
 	gateTimeout = 30 * time.Second
 )
 
 // File keeps the results of the steps in a directory, so they survive the
 // restart of a worker and are shared by the workers of one node.
 //
-// A claim is a file which only its owner may create: the first process to
-// create it holds the step. A claim whose expiry has passed is taken over,
-// which is what happens when the worker holding it died. The takeover is
-// serialized by a gate, so two workers cannot take the same claim over. The
-// result is written to a temporary file and renamed, so a reader never sees
-// half of it.
+// A claim is a file which only its owner may create. Every change of that
+// file — taking it, taking an expired one over, releasing it — happens under
+// a gate, a directory which only one worker may create. Without the gate a
+// worker which takes an expired claim over could remove the claim another
+// worker has created in the meantime, and both would run the work.
+//
+// The result is written to a temporary file and renamed, so a reader never
+// sees half of it.
 //
 // The directory must be on a filesystem of one node. Several nodes need a
 // store which all of them can reach, and which decides the winner of a claim
@@ -79,37 +81,36 @@ func (f *File) Result(_ context.Context, key Key) (map[string]any, bool, error) 
 	return result, true, nil
 }
 
+// Acquire claims the step for the owner until the lease expires.
+//
+// Every change of the claim happens under the gate, so a worker which takes
+// an expired claim over cannot remove the claim another worker has created
+// in the meantime.
 func (f *File) Acquire(_ context.Context, key Key, owner string, lease time.Duration) (bool, error) {
-	path := f.claimPath(key)
-	// Nobody holds the claim: take it. The exclusive create decides between
-	// the workers which try at the same time.
-	if claimed, err := f.createClaim(path, owner, lease); claimed || err != nil {
-		return claimed, err
-	}
-	// Somebody holds it. Is the claim expired?
-	if !claimExpired(path, lease) {
-		return false, nil
-	}
-	// The takeover of an expired claim is serialized. Without it two
-	// contenders could both see the expired claim, and the second one would
-	// remove the claim the first one has just taken — and then both would
-	// run the work.
 	release, err := f.gate(key)
 	if err != nil {
 		return false, err
 	}
 	defer release()
-	// The claim may have been replaced while we waited for the gate.
-	if !claimExpired(path, lease) {
+	path := f.claimPath(key)
+	claim, held, err := readClaim(path)
+	if err != nil {
+		return false, err
+	}
+	if held && !claim.expired(path, lease) {
+		// A live claim is refused whoever holds it: the same worker may
+		// hold the step in another delivery of the same job.
 		return false, nil
 	}
+	// The claim is free or expired: take it.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
 	return f.createClaim(path, owner, lease)
 }
 
-// createClaim creates the claim file, which only one worker may do.
+// createClaim creates the claim file, which only one worker may do. It is
+// called under the gate.
 func (f *File) createClaim(path, owner string, lease time.Duration) (bool, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
@@ -121,8 +122,8 @@ func (f *File) createClaim(path, owner string, lease time.Duration) (bool, error
 	// The claim carries the moment it expires: the worker which holds it
 	// promised to hold it until then, and a worker which finds the claim
 	// past that moment may take it over.
-	claim := owner + "\n" + strconv.FormatInt(time.Now().Add(lease).UnixNano(), 10)
-	if _, err := file.WriteString(claim); err != nil {
+	content := owner + "\n" + strconv.FormatInt(time.Now().Add(lease).UnixNano(), 10)
+	if _, err := file.WriteString(content); err != nil {
 		file.Close()
 		os.Remove(path)
 		return false, err
@@ -134,8 +135,39 @@ func (f *File) createClaim(path, owner string, lease time.Duration) (bool, error
 	return true, nil
 }
 
-// gate serializes the workers which take an expired claim over. The gate is
-// a directory, which only one worker may create.
+// Release drops the claim of the owner.
+func (f *File) Release(_ context.Context, key Key, owner string) error {
+	release, err := f.gate(key)
+	if err != nil {
+		return err
+	}
+	defer release()
+	path := f.claimPath(key)
+	claim, held, err := readClaim(path)
+	if err != nil {
+		return err
+	}
+	if !held || claim.owner != owner {
+		// Another worker holds the claim now; its file must stay.
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// Claim returns the claim on the step.
+func (f *File) Claim(_ context.Context, key Key) (ClaimInfo, bool, error) {
+	claim, held, err := readClaim(f.claimPath(key))
+	if err != nil || !held {
+		return ClaimInfo{}, held, err
+	}
+	return ClaimInfo{Owner: claim.owner, Until: claim.until}, true, nil
+}
+
+// gate serializes the changes of the claim of a step. The gate is a
+// directory, which only one worker may create.
 func (f *File) gate(key Key) (func(), error) {
 	path := f.claimPath(key) + ".gate"
 	deadline := time.Now().Add(gateTimeout)
@@ -159,21 +191,19 @@ func (f *File) gate(key Key) (func(), error) {
 	}
 }
 
-// claimExpired reports whether the claim may be taken over. The expiry the
-// holder wrote decides; the age of the file decides when the claim does not
-// carry one.
-func claimExpired(path string, lease time.Duration) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		// The claim is gone: it may be taken over.
-		return true
-	}
-	lines := strings.SplitN(string(data), "\n", 2)
-	if len(lines) == 2 {
-		until, err := strconv.ParseInt(strings.TrimSpace(lines[1]), 10, 64)
-		if err == nil {
-			return time.Now().After(time.Unix(0, until))
-		}
+// claimOnDisk is the claim of a step as it is stored in a file.
+type claimOnDisk struct {
+	owner string
+	until time.Time
+	// hasExpiry tells whether the holder wrote the moment its claim
+	// expires. A claim without one is judged by the age of its file.
+	hasExpiry bool
+}
+
+// expired reports whether the claim may be taken over.
+func (c claimOnDisk) expired(path string, lease time.Duration) bool {
+	if c.hasExpiry {
+		return time.Now().After(c.until)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -182,44 +212,26 @@ func claimExpired(path string, lease time.Duration) bool {
 	return time.Since(info.ModTime()) > lease
 }
 
-// Claim returns the claim on the step.
-func (f *File) Claim(_ context.Context, key Key) (ClaimInfo, bool, error) {
-	data, err := os.ReadFile(f.claimPath(key))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return ClaimInfo{}, false, nil
-		}
-		return ClaimInfo{}, false, err
-	}
-	lines := strings.SplitN(string(data), "\n", 2)
-	info := ClaimInfo{Owner: lines[0]}
-	if len(lines) == 2 {
-		until, err := strconv.ParseInt(strings.TrimSpace(lines[1]), 10, 64)
-		if err != nil {
-			return ClaimInfo{}, false, fmt.Errorf("read the claim on %s: %w", key.String(), err)
-		}
-		info.Until = time.Unix(0, until)
-	}
-	return info, true, nil
-}
-
-func (f *File) Release(_ context.Context, key Key, owner string) error {
-	path := f.claimPath(key)
+// readClaim reads the claim of a step from its file.
+func readClaim(path string) (claimOnDisk, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return claimOnDisk{}, false, nil
 		}
-		return err
+		return claimOnDisk{}, false, err
 	}
-	if strings.SplitN(string(data), "\n", 2)[0] != owner {
-		// Another worker holds the claim now; its file must stay.
-		return nil
+	lines := strings.SplitN(string(data), "\n", 2)
+	claim := claimOnDisk{owner: lines[0]}
+	if len(lines) == 2 {
+		until, err := strconv.ParseInt(strings.TrimSpace(lines[1]), 10, 64)
+		if err != nil {
+			return claimOnDisk{}, false, fmt.Errorf("read the claim in %s: %w", path, err)
+		}
+		claim.until = time.Unix(0, until)
+		claim.hasExpiry = true
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+	return claim, true, nil
 }
 
 func (f *File) Store(_ context.Context, key Key, _ string, result map[string]any) error {

@@ -134,6 +134,62 @@ func (s *storeOnAcquire) Acquire(ctx context.Context, key Key, owner string, lea
 	return claimed, err
 }
 
+// A waiter which loses the race for the claim waits again instead of
+// failing: a failure spends a retry of the job, and with the default retry
+// budget that ends the instance with an incident.
+func TestGuardWaitsAgainAfterLosingTheTakeover(t *testing.T) {
+	j := &loseTheRace{Journal: NewMemory(), result: map[string]any{"out": "from-the-other"}}
+	guard := NewGuard(j, "owner-a", time.Minute)
+	calls := 0
+	result, err := guard.Do(context.Background(), Key{JobKey: 9}, func() (map[string]any, error) {
+		calls++
+		return map[string]any{"out": "mine"}, nil
+	})
+	if err != nil {
+		t.Fatalf("the waiter failed instead of waiting again: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("the work ran %d times", calls)
+	}
+	if result["out"] != "from-the-other" {
+		t.Fatalf("result=%v", result)
+	}
+}
+
+// loseTheRace loses the race for the claim twice: the step is held by
+// another worker, and another waiter takes it over when the holder is gone.
+type loseTheRace struct {
+	Journal
+	mu     sync.Mutex
+	calls  int
+	result map[string]any
+}
+
+func (l *loseTheRace) Acquire(ctx context.Context, key Key, owner string, lease time.Duration) (bool, error) {
+	l.mu.Lock()
+	l.calls++
+	calls := l.calls
+	l.mu.Unlock()
+	switch calls {
+	case 1:
+		// Another worker holds the step. Its lease is short, so the waiter
+		// gives up on it and tries to take the step over.
+		_, _ = l.Journal.Acquire(ctx, key, "the-other-worker", 50*time.Millisecond)
+		return false, nil
+	case 2:
+		// Another waiter was faster and took the step over. Its result
+		// follows.
+		_, _ = l.Journal.Acquire(ctx, key, "the-other-waiter", time.Minute)
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			_ = l.Journal.Store(ctx, key, "the-other-waiter", l.result)
+		}()
+		return false, nil
+	default:
+		return l.Journal.Acquire(ctx, key, owner, lease)
+	}
+}
+
 // A step which failed is not remembered: the next delivery runs it again.
 func TestGuardDoesNotRememberAFailedStep(t *testing.T) {
 	j := NewMemory()

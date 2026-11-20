@@ -132,7 +132,7 @@ func (g *Guard) Do(ctx context.Context, key Key, work func() (map[string]any, er
 		slog.Warn("journal: the step could not be claimed, running it anyway", "key", key.String(), "err", err)
 		return work()
 	}
-	if !claimed {
+	for !claimed {
 		// Another worker is running the step. Its result is worth waiting
 		// for: the work is bounded, and failing here would spend a retry of
 		// the job for a step which is about to finish. The engine spends no
@@ -147,10 +147,13 @@ func (g *Guard) Do(ctx context.Context, key Key, work func() (map[string]any, er
 			// The delivery is over; the engine hands the job out again.
 			return nil, ErrHeld
 		}
-		// The holder is presumed gone: take the step over.
+		// The holder is presumed gone: take the step over. Another waiter
+		// may be faster, and then this one waits for its result again
+		// instead of failing.
 		claimed, err = g.journal.Acquire(store, key, g.owner, g.lease)
-		if err != nil || !claimed {
-			return nil, ErrHeld
+		if err != nil {
+			slog.Warn("journal: the step could not be claimed, running it anyway", "key", key.String(), "err", err)
+			return work()
 		}
 	}
 	defer func() {

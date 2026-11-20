@@ -243,6 +243,38 @@ func TestRedeliveryWaitsForTheRunningCommand(t *testing.T) {
 	}
 }
 
+// The budget of the command starts with the command, not with the wait for
+// the claim of the step: a context which expires while the worker waits
+// skips the command and stores its cancellation as the result of the step.
+func TestCommandBudgetStartsWithTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	store := journal.NewMemory()
+	key := journal.Key{JobKey: 500}
+	// Another worker holds the step for longer than the budget of the
+	// command.
+	if claimed, err := store.Acquire(context.Background(), key, "owner-b", execGrace+time.Second); err != nil || !claimed {
+		t.Fatalf("claimed=%v err=%v", claimed, err)
+	}
+	guard := journal.NewGuard(store, "owner-a", time.Minute)
+	w, err := NewWorker(dir, guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(map[string]any{"exec_request": map[string]any{"command": "echo done", "timeout_sec": 0.5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobKey := key.JobKey
+	out, workerErr := w.Handle(context.Background(), &proto.WaitingJob{InputVariables: raw, Key: &jobKey})
+	if workerErr != nil {
+		t.Fatal(workerErr)
+	}
+	result := out["exec_result"].(map[string]any)
+	if result["stdout"] != "done\n" || result["cancelled"] != false || result["timed_out"] != false {
+		t.Fatalf("the command did not run: %v", result)
+	}
+}
+
 func TestCommandSurvivesCancelledJobContext(t *testing.T) {
 	w, err := NewWorker(t.TempDir())
 	if err != nil {

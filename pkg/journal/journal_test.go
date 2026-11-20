@@ -186,6 +186,105 @@ func TestFileJournalTakeoverIsAtomic(t *testing.T) {
 	}
 }
 
+// While one worker holds the gate, no other worker may change the claim of
+// the step: a worker which takes an expired claim over would otherwise
+// remove the claim another worker has just created.
+func TestFileJournalGateSerializesEveryClaimChange(t *testing.T) {
+	dir := t.TempDir()
+	j, err := NewFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	key := Key{JobKey: 999}
+	// The gate is held by a worker which is in the middle of a takeover.
+	release, err := j.gate(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed := make(chan bool, 1)
+	go func() {
+		taken, err := j.Acquire(ctx, key, "owner-b", time.Minute)
+		if err != nil {
+			claimed <- false
+			return
+		}
+		claimed <- taken
+	}()
+	select {
+	case taken := <-claimed:
+		release()
+		t.Fatalf("a claim was taken while the gate was held: %v", taken)
+	case <-time.After(200 * time.Millisecond):
+		// The other worker waits for the gate.
+	}
+	release()
+	select {
+	case taken := <-claimed:
+		if !taken {
+			t.Fatal("the claim was not taken after the gate was released")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker did not take the claim after the gate was released")
+	}
+}
+
+// A worker which takes an expired claim over must not remove the claim a
+// worker created in the meantime: both would run the work. Every change of
+// the claim is serialized, so the claim of one worker is never the claim of
+// two.
+func TestFileJournalClaimsStayExclusiveUnderChurn(t *testing.T) {
+	for round := 0; round < 100; round++ {
+		dir := t.TempDir()
+		j, err := NewFile(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		key := Key{JobKey: int64(400 + round)}
+		// A claim which expired.
+		if claimed, err := j.Acquire(ctx, key, "owner-dead", time.Millisecond); err != nil || !claimed {
+			t.Fatalf("claimed=%v err=%v", claimed, err)
+		}
+		time.Sleep(3 * time.Millisecond)
+		var holders atomic.Int32
+		var violations atomic.Int32
+		var group sync.WaitGroup
+		// A worker which takes the claim over and releases it again and
+		// again, and a worker which takes the expired claim over.
+		for _, owner := range []string{"churner", "taker"} {
+			group.Add(1)
+			go func(owner string) {
+				defer group.Done()
+				contender, err := NewFile(dir)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				for i := 0; i < 30; i++ {
+					claimed, err := contender.Acquire(ctx, key, owner, time.Minute)
+					if err != nil {
+						return
+					}
+					if !claimed {
+						continue
+					}
+					if holders.Add(1) > 1 {
+						violations.Add(1)
+					}
+					time.Sleep(time.Millisecond)
+					holders.Add(-1)
+					_ = contender.Release(ctx, key, owner)
+				}
+			}(owner)
+		}
+		group.Wait()
+		if violations.Load() != 0 {
+			t.Fatalf("round %d: two workers held the claim at the same time", round)
+		}
+	}
+}
+
 // The result is written atomically: a reader never sees half of it.
 func TestFileJournalResultIsAtomic(t *testing.T) {
 	dir := t.TempDir()

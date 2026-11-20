@@ -168,17 +168,28 @@ A redelivery which finds the step running **waits for its result** instead of
 failing. The work is bounded, and a failure here would spend a retry of the
 job for a step which is about to finish — with the default retry budget that
 ends the instance with an incident. The waiter takes the step over when the
-claim of the holder expires: the holder is presumed gone.
+claim of the holder expires: the holder is presumed gone. If another waiter
+is faster, the waiter waits for *its* result too — losing the race for a
+claim is not a failure.
 
 The `file` journal keeps its records in a directory, so they survive the
-restart of a worker and are shared by the workers of one node. The takeover of
-an expired claim is serialized, so two workers cannot take the same claim
-over and both run the work. A directory on a filesystem of several nodes needs
-a store all of them reach, which decides the winner of a claim in one place.
+restart of a worker and are shared by the workers of one node. **Every**
+change of the claim of a step — taking it, taking an expired one over,
+releasing it — is serialized by a gate, so two workers can never hold the
+same claim, and a worker which takes an expired claim over cannot remove the
+claim another worker has created in the meantime. A directory on a
+filesystem of several nodes needs a store all of them reach, which decides
+the winner of a claim in one place.
 
 The `journal_lease` must outlast the longest job the worker runs, the server
 refuses to start otherwise: a claim which expires while its holder is still
 working lets another worker take the step over, and the work runs twice.
+
+The budget of a job starts with the work, not with the wait for the claim:
+the worker waits for the claim of the step first, and the command or the
+provider call runs with its own deadline from then on. A deadline which
+started before the wait could expire while the worker waits, and the step
+would be stored as cancelled without ever running.
 
 What the journal cannot close: a worker which dies between the side effect
 and the stored result leaves a step whose outcome is unknown. The claim

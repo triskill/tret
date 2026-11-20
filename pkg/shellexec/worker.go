@@ -31,7 +31,8 @@ const maxTimeout = 120 * time.Second
 // execGrace is the time the command may outlive its own timeout before the
 // runner's context cancels it. The runner enforces the timeout itself and
 // reports it as a timeout; the grace only matters if the runner fails to.
-const execGrace = 5 * time.Second
+// It covers the escalation of the runner, which takes about 600 ms.
+const execGrace = 2 * time.Second
 
 // MaxTimeout is the longest a command may run. It is also the worker's
 // longest runtime, which the job lock must outlast.
@@ -125,11 +126,6 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 		}
 		timeout = time.Duration(*input.TimeoutSec * float64(time.Second))
 	}
-	// The command must not die with the job stream: the engine redelivers
-	// the job after a reconnect, and a command killed halfway is a partially
-	// applied side effect which then runs a second time.
-	runCtx, cancel := worker.Detach(ctx, timeout+execGrace)
-	defer cancel()
 	dir, err := w.workspace(job)
 	if err != nil {
 		return invalid(err)
@@ -137,6 +133,16 @@ func (w *Worker) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]
 	// The command is the step. The journal makes a redelivery of the job
 	// repeat its result instead of running the command a second time.
 	out, err := w.guard.Do(ctx, journal.Key{JobKey: job.GetKey()}, func() (map[string]any, error) {
+		// The budget of the command starts with the command, not with the
+		// wait for the claim of the step: a context which expires while the
+		// worker waits would skip the command and store its cancellation as
+		// the result of the step.
+		//
+		// The command must not die with the job stream either: the engine
+		// redelivers the job after a reconnect, and a command killed halfway
+		// is a partially applied side effect which then runs a second time.
+		runCtx, cancel := worker.Detach(ctx, timeout+execGrace)
+		defer cancel()
 		result, err := w.Runner.RunIn(runCtx, dir, input.Command, timeout)
 		if err != nil {
 			// Run errors only before the process starts (size, encoding,
