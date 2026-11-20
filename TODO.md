@@ -76,9 +76,9 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
       **Done**: `pkg/journal` with a file store (one node) and an in-memory
       store; both built-in workers use it when `journal_dir` is set. The
       claim of a step is waited for instead of failed, every change of a
-      claim is serialized, the lease must outlast the work, and the budget
-      of a job starts with the work. A store several nodes can reach is
-      still open.
+      claim is serialized by an OS file lock, the lease must outlast the
+      work, and the budget of a job starts with the work. A store several
+      nodes can reach is still open.
 - [x] **Error taxonomy.** Every failure carried an error code, so the
       engine never spent a retry and the BPMN `retries` attribute was dead.
       Now: invalid request / invalid output -> BPMN error; transient

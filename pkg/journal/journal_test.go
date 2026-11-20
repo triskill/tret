@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestMemoryStoresAndReturnsTheResult(t *testing.T) {
@@ -226,6 +228,74 @@ func TestFileJournalGateSerializesEveryClaimChange(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the worker did not take the claim after the gate was released")
+	}
+}
+
+// The lock of a worker which died is released by the operating system: the
+// next worker does not wait for a timeout, and there is no stale state to
+// read, judge and remove.
+func TestFileJournalLockIsReleasedWithTheHolder(t *testing.T) {
+	dir := t.TempDir()
+	j, err := NewFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	key := Key{JobKey: 1001}
+	// A worker which holds the lock and dies.
+	path := j.claimPath(key) + ".lock"
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	// The worker dies: its file is closed, and the lock with it.
+	file.Close()
+	// Another worker takes the claim at once.
+	started := time.Now()
+	claimed, err := j.Acquire(ctx, key, "owner-b", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claimed {
+		t.Fatal("the lock of a dead worker was not released")
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("the worker waited %s for the lock of a dead worker", elapsed)
+	}
+}
+
+// The lock of a step is never removed: a file which is removed could be
+// replaced by another one between the reading of it and the removal of it,
+// and the worker which removes it would remove the lock of another worker.
+func TestFileJournalLockFileIsStable(t *testing.T) {
+	dir := t.TempDir()
+	j, err := NewFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	key := Key{JobKey: 1002}
+	if claimed, err := j.Acquire(ctx, key, "owner-a", time.Minute); err != nil || !claimed {
+		t.Fatalf("claimed=%v err=%v", claimed, err)
+	}
+	path := j.claimPath(key) + ".lock"
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := info.ModTime()
+	if err := j.Release(ctx, key, "owner-a"); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("the lock file was removed: %v", err)
+	}
+	if !info.ModTime().Equal(first) {
+		t.Fatal("the lock file was replaced")
 	}
 }
 

@@ -5,16 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
-	// gateTimeout bounds how long a worker waits for the gate which
+	// gateTimeout bounds how long a worker waits for the lock which
 	// serializes the changes of a claim.
 	gateTimeout = 30 * time.Second
 )
@@ -24,7 +27,7 @@ const (
 //
 // A claim is a file which only its owner may create. Every change of that
 // file — taking it, taking an expired one over, releasing it — happens under
-// a gate, a directory which only one worker may create. Without the gate a
+// a lock, an OS file lock on a file which is never removed. Without it a
 // worker which takes an expired claim over could remove the claim another
 // worker has created in the meantime, and both would run the work.
 //
@@ -166,25 +169,40 @@ func (f *File) Claim(_ context.Context, key Key) (ClaimInfo, bool, error) {
 	return ClaimInfo{Owner: claim.owner, Until: claim.until}, true, nil
 }
 
-// gate serializes the changes of the claim of a step. The gate is a
-// directory, which only one worker may create.
+// gate serializes the changes of the claim of a step.
+//
+// The gate is an OS file lock on a file which is never removed. The
+// operating system arbitrates between the workers, so there is no state to
+// read and no state to judge: a worker which dies releases its lock, and
+// the next worker takes it at once.
+//
+// A directory could not do this. Deciding that a gate is stale means
+// reading it, and the gate may be replaced between that reading and the
+// removal of it: the worker which removes it then removes the fresh gate of
+// another worker, and both enter the critical section.
 func (f *File) gate(key Key) (func(), error) {
-	path := f.claimPath(key) + ".gate"
+	path := f.claimPath(key) + ".lock"
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
 	deadline := time.Now().Add(gateTimeout)
 	for {
-		err := os.Mkdir(path, 0700)
+		err = unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
-			return func() { os.Remove(path) }, nil
+			return func() {
+				// Closing the file releases the lock, whether or not the
+				// unlock succeeds.
+				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+				file.Close()
+			}, nil
 		}
-		if !os.IsExist(err) {
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EINTR) {
+			file.Close()
 			return nil, err
 		}
-		// The gate is held by a worker which may have died.
-		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > gateTimeout {
-			os.Remove(path)
-			continue
-		}
 		if time.Now().After(deadline) {
+			file.Close()
 			return nil, fmt.Errorf("the claim on %s is busy", key.String())
 		}
 		time.Sleep(10 * time.Millisecond)

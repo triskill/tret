@@ -175,9 +175,11 @@ claim is not a failure.
 The `file` journal keeps its records in a directory, so they survive the
 restart of a worker and are shared by the workers of one node. **Every**
 change of the claim of a step — taking it, taking an expired one over,
-releasing it — is serialized by a gate, so two workers can never hold the
-same claim, and a worker which takes an expired claim over cannot remove the
-claim another worker has created in the meantime. A directory on a
+releasing it — is serialized by an OS file lock on a file which is never
+removed, so two workers can never hold the same claim, and a worker which
+takes an expired claim over cannot remove the claim another worker has
+created in the meantime. The operating system releases the lock when the
+worker holding it dies, so there is no stale lock to judge. A directory on a
 filesystem of several nodes needs a store all of them reach, which decides
 the winner of a claim in one place.
 
