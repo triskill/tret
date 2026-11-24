@@ -253,7 +253,7 @@ based isolation is the follow-up (`futurePlans.md`, Phase 6).
 **Fixed** (commit `5063e9e`): `FromFlags` reports an error instead of
 exiting, and the server validates every model profile at startup.
 
-**The endpoint heuristic is fixed as well** (commit `XXXX`): the endpoint of
+**The endpoint heuristic is fixed as well** (commit `93f5f58`): the endpoint of
 the default profile is the configured `api_base`, always. The api key is a
 credential and never selects an endpoint; the second key (`ollama_base`) is
 gone, so there is one endpoint and no rule which decides between two.
