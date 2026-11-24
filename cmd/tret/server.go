@@ -109,15 +109,17 @@ func runServer(args []string) {
 		conn, err := zen.DialGRPC(cfg.EngineGRPC)
 		if err == nil {
 			g := zen.NewGrpcClient(conn)
-			_, err = g.RegisterWorkerWithOptions(ctx, id, registry.Handle, options...)
-			if err == nil {
+			handle, registerErr := g.RegisterWorkerWithOptions(ctx, id, registry.Handle, options...)
+			if registerErr == nil {
+				// The registry renews the lock of a job while it runs: a
+				// lock which lapses before the job is done hands the job to
+				// a second worker, and the side effect runs twice.
+				registry.SetRenewer(handle)
 				defer conn.Close()
-			} else {
-				conn.Close()
+				break
 			}
-		}
-		if err == nil {
-			break
+			err = registerErr
+			conn.Close()
 		}
 		if time.Now().After(deadline) {
 			slog.Error("the engine is not reachable", "addr", cfg.EngineGRPC, "err", err)

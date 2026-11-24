@@ -53,6 +53,8 @@ type Registry struct {
 	handlers map[string]zenclient.WorkerFunc
 	specs    map[string]Spec
 
+	renewer renewerBox
+
 	intake   sync.Mutex
 	draining bool
 	inflight sync.WaitGroup
@@ -60,6 +62,13 @@ type Registry struct {
 
 func NewRegistry() *Registry {
 	return &Registry{handlers: make(map[string]zenclient.WorkerFunc), specs: make(map[string]Spec)}
+}
+
+// SetRenewer gives the registry the means to renew the lock of a delivered
+// job while the job runs. The zenclient's worker implements the interface;
+// the registration hands it out once the stream is open.
+func (r *Registry) SetRenewer(renewer LockRenewer) {
+	r.renewer.set(renewer)
 }
 
 // Register adds a handler for one job type. The spec must be consistent with
@@ -136,8 +145,12 @@ func (r *Registry) Handle(ctx context.Context, job *proto.WaitingJob) (map[strin
 	return nil, &zenclient.WorkerError{Err: fmt.Errorf("unregistered job type %q", job.GetType()), ErrorCode: "unknown_job_type", Retries: &zero}
 }
 
-// run calls the handler and logs the outcome of the job.
+// run calls the handler and logs the outcome of the job. The lock of the
+// job is renewed while it runs: a lock which lapses before the job is done
+// hands the job to a second worker, and the side effect runs twice.
 func (r *Registry) run(ctx context.Context, job *proto.WaitingJob, handler zenclient.WorkerFunc) (map[string]any, *zenclient.WorkerError) {
+	stopRenewal := r.renewLock(ctx, job)
+	defer stopRenewal()
 	started := time.Now()
 	result, workerErr := handler(ctx, job)
 	fields := []any{
@@ -184,13 +197,21 @@ func (r *Registry) Drain(ctx context.Context) error {
 // Subscribe registers a handler for the given job types with the default
 // lock duration. Third-party workers should use it (or name their own lock)
 // rather than zenclient.RegisterWorker, whose engine default of 30 s is
-// shorter than many jobs take.
+// shorter than many jobs take. The lock of a delivered job is renewed while
+// the job runs.
 func Subscribe(ctx context.Context, g *zenclient.Grpc, clientID string, f zenclient.WorkerFunc, jobTypes ...string) (*zenclient.Worker, error) {
-	specs := make([]Spec, 0, len(jobTypes))
+	registry := NewRegistry()
 	for _, jobType := range jobTypes {
-		specs = append(specs, Spec{JobType: jobType})
+		if err := registry.Register(Spec{JobType: jobType}, f); err != nil {
+			return nil, err
+		}
 	}
-	return g.RegisterWorkerWithOptions(ctx, clientID, f, Options(specs...)...)
+	handle, err := g.RegisterWorkerWithOptions(ctx, clientID, registry.Handle, registry.Options()...)
+	if err != nil {
+		return nil, err
+	}
+	registry.SetRenewer(handle)
+	return handle, nil
 }
 
 // Options turns specs into engine subscription options.

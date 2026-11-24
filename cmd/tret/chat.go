@@ -90,9 +90,13 @@ func executeChat(ctx context.Context, args []string, input io.Reader, output io.
 	defer conn.Close()
 	workerCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
-	if _, err := zen.NewGrpcClient(conn).RegisterWorkerWithOptions(workerCtx, id, registry.Handle, registry.Options()...); err != nil {
+	handle, err := zen.NewGrpcClient(conn).RegisterWorkerWithOptions(workerCtx, id, registry.Handle, registry.Options()...)
+	if err != nil {
 		return err
 	}
+	// The lock of a job is renewed while it runs: a lock which lapses hands
+	// the job to a second worker, and the side effect runs twice.
+	registry.SetRenewer(handle)
 	instance, err := client.StartInstance(definition, id, map[string]any{
 		"request": map[string]any{}, "response": nil, "execution": nil,
 		"turn": 0, "max_turns": 8, "quit": false,
