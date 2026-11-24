@@ -196,18 +196,46 @@ func TestRunFiltersAndCompletesOnce(t *testing.T) {
 	}
 }
 
+// The engine sends no state for an incident: one which is still open carries
+// no resolvedAt, one which was resolved carries the moment it was resolved.
 func TestRunIncident(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/incidents") {
-			io.WriteString(w, `{"items":[{"key":4,"state":"unresolved","message":"provider failed"}]}`)
-			return
-		}
-		io.WriteString(w, `{"key":9,"state":"active"}`)
-	}))
-	defer server.Close()
-	err := Run(context.Background(), zen.NewClient(server.URL), 9, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "provider failed") {
-		t.Fatalf("incident: %v", err)
+	for _, tt := range []struct {
+		name     string
+		incident string
+		wantErr  bool
+	}{
+		{"open incident", `{"items":[{"key":4,"message":"provider failed"}]}`, true},
+		{"resolved incident", `{"items":[{"key":4,"message":"provider failed","resolvedAt":"2026-11-24T19:39:38Z"}]}`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			polls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/incidents"):
+					io.WriteString(w, tt.incident)
+				case strings.HasSuffix(r.URL.Path, "/jobs"):
+					io.WriteString(w, `{"items":[]}`)
+				default:
+					polls++
+					state := "active"
+					if polls > 1 {
+						state = "completed"
+					}
+					fmt.Fprintf(w, `{"key":9,"state":%q}`, state)
+				}
+			}))
+			defer server.Close()
+			err := Run(context.Background(), zen.NewClient(server.URL), 9, strings.NewReader(""), io.Discard)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "provider failed") {
+					t.Fatalf("incident: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("a resolved incident stopped the chat: %v", err)
+			}
+		})
 	}
 }
 

@@ -136,6 +136,29 @@ Tests run against a live engine with `make up` plus `TRET_INTEGRATION=1 go test
 ./internal/integration`; unit tests run everywhere. Real-model acceptance is
 opt-in per the example READMEs.
 
+## The operator commands
+
+The engine keeps the state of every run, and `tret` reads it:
+
+```sh
+tret status                      # the running instances (all with -state all)
+tret instance <key>              # one instance and its variables
+tret jobs <key>                  # the jobs of an instance
+tret incidents <key>             # the incidents of an instance
+tret resolve <incident-key>      # let the failed step run again
+tret complete <job-key>          # answer a human task from the terminal
+tret capabilities                # the job types and commands of this build
+```
+
+The commands take the engine at `-engine` (default `http://localhost:8080`).
+`tret resolve` gives the failed job one retry by default; `-retries` names
+another number. A job of a human task is answered with the variables the
+task asks for:
+
+```sh
+tret complete <job-key> -variables answer.json
+```
+
 ## Status
 
 Early development. Nothing is deployed or executed automatically; side effects

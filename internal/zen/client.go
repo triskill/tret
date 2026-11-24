@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -126,7 +127,59 @@ type Instance struct {
 	BusinessKey          string         `json:"businessKey"`
 	State                string         `json:"state"`
 	ProcessDefinitionKey int64          `json:"processDefinitionKey"`
+	BPMNProcessID        string         `json:"bpmnProcessId"`
+	IncidentCount        int            `json:"incidentCount"`
+	CreatedAt            time.Time      `json:"createdAt"`
 	Variables            map[string]any `json:"variables"`
+}
+
+// ListInstances returns the instances of the engine, newest first. The
+// engine answers with a page per partition and pages the instances across
+// them; an empty state returns every instance.
+func (c *Client) ListInstances(state string) ([]Instance, error) {
+	const size = 100
+	instances := []Instance{}
+	for page := 1; ; page++ {
+		query := url.Values{"page": {strconv.Itoa(page)}, "size": {strconv.Itoa(size)}}
+		if state != "" {
+			query.Set("state", state)
+		}
+		resp, err := c.HTTPClient.Get(c.BaseURL + "/v1/process-instances?" + query.Encode())
+		if err != nil {
+			return nil, err
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("list instances failed: %s: %s", resp.Status, string(body))
+		}
+		var answer struct {
+			Partitions []struct {
+				Items []Instance `json:"items"`
+			} `json:"partitions"`
+			Count      int `json:"count"`
+			Page       int `json:"page"`
+			Size       int `json:"size"`
+			TotalCount int `json:"totalCount"`
+		}
+		if err := json.Unmarshal(body, &answer); err != nil {
+			return nil, fmt.Errorf("parse instances: %w", err)
+		}
+		count := 0
+		for _, partition := range answer.Partitions {
+			count += len(partition.Items)
+			instances = append(instances, partition.Items...)
+		}
+		if count == 0 {
+			return instances, nil
+		}
+		if answer.TotalCount > 0 && page*answer.Size >= answer.TotalCount {
+			return instances, nil
+		}
+	}
 }
 
 func (c *Client) GetInstanceByBusinessKey(businessKey string) (*Instance, error) {
@@ -163,6 +216,10 @@ type Job struct {
 	Key            int64          `json:"key"`
 	Type           string         `json:"type"`
 	State          string         `json:"state"`
+	ElementID      string         `json:"elementId"`
+	Attempts       int32          `json:"attempts"`
+	Retries        int32          `json:"retries"`
+	CreatedAt      time.Time      `json:"createdAt"`
 	InputVariables map[string]any `json:"inputVariables"`
 }
 
@@ -218,11 +275,21 @@ func (c *Client) ListJobs(processInstanceKey int64) ([]Job, error) {
 	}
 }
 
+// Incident is a failure of a step which the process did not handle. The
+// engine sends no state for it: an incident which was resolved has a
+// resolvedAt.
 type Incident struct {
-	Key     int64  `json:"key"`
-	Message string `json:"message"`
-	State   string `json:"state"`
+	Key                int64      `json:"key"`
+	Message            string     `json:"message"`
+	ElementID          string     `json:"elementId"`
+	JobKey             int64      `json:"jobKey"`
+	ProcessInstanceKey int64      `json:"processInstanceKey"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	ResolvedAt         *time.Time `json:"resolvedAt"`
 }
+
+// Resolved reports whether the incident was resolved.
+func (i Incident) Resolved() bool { return i.ResolvedAt != nil }
 
 func (c *Client) ListIncidents(processInstanceKey int64) ([]Incident, error) {
 	resp, err := c.HTTPClient.Get(fmt.Sprintf("%s/v1/process-instances/%d/incidents", c.BaseURL, processInstanceKey))
@@ -287,6 +354,30 @@ func (c *Client) CancelInstance(key int64) error {
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("cancel failed: %s: %s", resp.Status, string(b))
+	}
+	return nil
+}
+
+// ResolveIncident resolves an incident, so that the step which failed runs
+// again with the given number of retries.
+func (c *Client) ResolveIncident(key int64, retries int) error {
+	body, err := json.Marshal(map[string]any{"retries": retries})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/v1/incidents/%d/resolve", c.BaseURL, key), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("resolve incident failed: %s: %s", resp.Status, string(b))
 	}
 	return nil
 }

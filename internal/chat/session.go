@@ -69,7 +69,9 @@ func Run(ctx context.Context, client *zen.Client, instance int64, input io.Reade
 			return fmt.Errorf("list chat incidents: %w", err)
 		}
 		for _, incident := range incidents {
-			if incident.State != "resolved" {
+			// The engine sends no state for an incident: one which was
+			// resolved carries the moment it was resolved.
+			if !incident.Resolved() {
 				return fmt.Errorf("chat incident %d: %s", incident.Key, incident.Message)
 			}
 		}

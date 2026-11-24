@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -123,5 +124,123 @@ func TestMalformedEngineURL(t *testing.T) {
 	}
 	if err := c.CompleteJob(1, nil); err == nil {
 		t.Fatal("malformed completion URL accepted")
+	}
+}
+
+// The engine answers the list of instances with a page per partition.
+func TestListInstancesFollowsThePages(t *testing.T) {
+	const total = 12
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/process-instances" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if state := r.URL.Query().Get("state"); state != "" && state != "active" {
+			t.Errorf("unexpected state filter: %q", state)
+		}
+		page, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err != nil || page != requests+1 {
+			t.Errorf("page=%d err=%v, want %d", page, err, requests+1)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		requests++
+		const size = 5
+		var items []Instance
+		for i := (page - 1) * size; i < page*size && i < total; i++ {
+			items = append(items, Instance{
+				Key: int64(i + 1), State: "active", BusinessKey: fmt.Sprintf("bk-%d", i+1),
+				ProcessDefinitionKey: 7, BPMNProcessID: "invoice", IncidentCount: i,
+			})
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"partitions": []any{map[string]any{"items": items, "partition": 1, "totalCount": total}},
+			"count":      len(items), "page": page, "size": size, "totalCount": total,
+		})
+	}))
+	defer srv.Close()
+
+	instances, err := NewClient(srv.URL).ListInstances("active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != total || requests != 3 {
+		t.Fatalf("instances=%d requests=%d, want %d and 3", len(instances), requests, total)
+	}
+	for i, instance := range instances {
+		if instance.Key != int64(i+1) || instance.BusinessKey != fmt.Sprintf("bk-%d", i+1) {
+			t.Fatalf("instance %d: %#v", i, instance)
+		}
+		if instance.ProcessDefinitionKey != 7 || instance.BPMNProcessID != "invoice" || instance.IncidentCount != i {
+			t.Fatalf("instance %d: %#v", i, instance)
+		}
+	}
+}
+
+func TestListInstancesRejectsABadAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "not JSON")
+	}))
+	defer srv.Close()
+	instances, err := NewClient(srv.URL).ListInstances("")
+	if err == nil || instances != nil {
+		t.Fatalf("instances=%v err=%v, want error without partial results", instances, err)
+	}
+}
+
+func TestResolveIncident(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/incidents/42/resolve" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	if err := NewClient(srv.URL).ResolveIncident(42, 2); err != nil {
+		t.Fatal(err)
+	}
+	if body["retries"] != float64(2) {
+		t.Fatalf("body: %v", body)
+	}
+}
+
+func TestResolveIncidentRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		fmt.Fprint(w, "the incident is already resolved")
+	}))
+	defer srv.Close()
+	err := NewClient(srv.URL).ResolveIncident(42, 1)
+	if err == nil || !strings.Contains(err.Error(), "already resolved") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// The engine does not send a state for an incident: an incident which was
+// resolved has a resolvedAt.
+func TestListIncidentsReadsTheResolvedAt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"items":[{"key":1,"message":"failed","elementId":"Probe","jobKey":2,"processInstanceKey":3},{"key":4,"message":"resolved","resolvedAt":"2026-11-24T19:39:38Z"}],"count":2,"page":1,"size":10,"totalCount":2}`)
+	}))
+	defer srv.Close()
+	incidents, err := NewClient(srv.URL).ListIncidents(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(incidents) != 2 {
+		t.Fatalf("incidents=%d", len(incidents))
+	}
+	if incidents[0].ResolvedAt != nil {
+		t.Errorf("the open incident is resolved: %v", incidents[0].ResolvedAt)
+	}
+	if incidents[1].ResolvedAt == nil {
+		t.Error("the resolved incident has no resolvedAt")
+	}
+	if incidents[0].ElementID != "Probe" || incidents[0].JobKey != 2 {
+		t.Errorf("incident: %#v", incidents[0])
 	}
 }

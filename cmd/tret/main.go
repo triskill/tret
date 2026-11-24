@@ -11,11 +11,19 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `tret — BPMN-driven agent loops with generic job workers
 
 Usage:
-  tret server [flags]   host generic workers (llm-call-v1, exec-command-v1)
-  tret deploy [flags]   deploy a BPMN file and print its definition key
-  tret start [flags]    start a process and print its instance key
-  tret [flags]          chat in the current directory (engine must be running)
-  tret chat [flags]     same as 'tret [flags]'
+  tret server [flags]     host generic workers (llm-call-v1, exec-command-v1)
+  tret deploy [flags]     deploy a BPMN file and print its definition key
+  tret start [flags]      start a process and print its instance key
+  tret status [flags]     list the instances of the engine
+  tret instance <key>     show one instance and its variables
+  tret jobs <key>         list the jobs of an instance
+  tret incidents <key>    list the incidents of an instance
+  tret resolve <key>      resolve an incident, so that the failed step runs again
+  tret complete <key>     complete a job, e.g. to answer a human task
+  tret version            print the version
+  tret capabilities       print what this build can do
+  tret [flags]            chat in the current directory (engine must be running)
+  tret chat [flags]       same as 'tret [flags]'
 
 New loops are BPMN files deployed to the engine; add capabilities by
 registering your own job workers (see docs/workers.md).
@@ -38,6 +46,30 @@ func main() {
 			return
 		case "start":
 			runStart(args[1:])
+			return
+		case "status":
+			runStatus(args[1:])
+			return
+		case "instance":
+			runInstance(args[1:])
+			return
+		case "jobs":
+			runJobs(args[1:])
+			return
+		case "incidents":
+			runIncidents(args[1:])
+			return
+		case "resolve":
+			runResolve(args[1:])
+			return
+		case "complete":
+			runComplete(args[1:])
+			return
+		case "version":
+			runVersion(args[1:])
+			return
+		case "capabilities":
+			runCapabilities(args[1:])
 			return
 		case "-h", "--help", "help":
 			usage()

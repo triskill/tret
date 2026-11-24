@@ -447,10 +447,21 @@ config value with a sane default.
 
 ## S4 — The operator surface is too thin
 
-`tret` can deploy, start and serve. There is no `status`, `instance`, `jobs`,
-`incidents`, `resolve`, `complete`, `version`. The human-task client
-(`TODO.md`) is the most visible gap — a `userTask` is a job like any other,
-and the only way to answer it today is the ZenBPM UI or `curl`.
+**Fixed**: `tret status`, `instance`, `jobs`, `incidents`, `resolve`,
+`complete`, `version` and `capabilities` read the engine over REST. A
+`userTask` is a job like any other, and `tret complete` answers it from the
+terminal.
+
+`tret` could deploy, start and serve. There was no `status`, `instance`,
+`jobs`, `incidents`, `resolve`, `complete`, `version`. The human-task client
+(`TODO.md`) was the most visible gap — a `userTask` is a job like any other,
+and the only way to answer it was the ZenBPM UI or `curl`.
+
+**A bug the operator commands uncovered:** the engine sends no `state` for an
+incident — an incident which was resolved carries the moment it was resolved
+(`resolvedAt`). `internal/chat/session.go` compared the missing `state` with
+`"resolved"`, so every incident of a chat ended the session, even a resolved
+one. The check reads `resolvedAt` now.
 
 ---
 

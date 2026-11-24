@@ -429,6 +429,9 @@ the job key.
 
 ### 6.4 CLI
 
+**Status**: every command but `tret doctor` exists and reads the engine over
+REST.
+
 ```
 tret doctor                 # engine, journal, profiles, exec root, clock skew
 tret status                 # engine + worker health

@@ -167,8 +167,11 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
       idempotency effectiveness metric.
 - [ ] **Tracing.** The engine does not propagate trace context into job
       headers; link spans on the job key until it does.
-- [ ] **CLI.** `tret status`, `instance`, `jobs`, `incidents`, `resolve`,
+- [x] **CLI.** `tret status`, `instance`, `jobs`, `incidents`, `resolve`,
       `version`, `capabilities`. `futurePlans.md` §6.4.
+      **Done**: the commands read the engine over REST; `tret complete`
+      answers a human task with the variables of the answer. `tret doctor`
+      and the health endpoints of the server are still open.
 
 ## Open — Phase 5: worker contracts
 
