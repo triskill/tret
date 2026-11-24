@@ -251,8 +251,12 @@ based isolation is the follow-up (`futurePlans.md`, Phase 6).
 ## S2 — Misconfiguration is reported as a process error, and the config package kills the process
 
 **Fixed** (commit `5063e9e`): `FromFlags` reports an error instead of
-exiting, and the server validates every model profile at startup. The
-"no api key → Ollama" heuristic is still open.
+exiting, and the server validates every model profile at startup.
+
+**The endpoint heuristic is fixed as well** (commit `XXXX`): the endpoint of
+the default profile is the configured `api_base`, always. The api key is a
+credential and never selects an endpoint; the second key (`ollama_base`) is
+gone, so there is one endpoint and no rule which decides between two.
 
 * `pkg/llm/worker.go:200` — an invalid **server** profile is returned as
   `invalid_input`, i.e. "the process sent a bad request". The process did
@@ -264,8 +268,8 @@ exiting, and the server validates every model profile at startup. The
 * `internal/config.FromFlags` calls `os.Exit(1)` on a config error and uses
   `flag.ExitOnError` — the package cannot be used as a library, cannot be
   unit tested for failure paths, and cannot be embedded in another binary.
-* The "no api key → Ollama" heuristic (`cmd/tret/server.go:27-30`) is a trap: a
-  local vLLM/Ollama endpoint that wants a dummy key silently talks to
+* The "no api key → Ollama" heuristic (`cmd/tret/server.go:27-30`) was a trap: a
+  local vLLM/Ollama endpoint that wants a dummy key silently talked to
   `api.openai.com`.
 
 **Fix.** Validate the whole configuration at startup (profiles parse, the

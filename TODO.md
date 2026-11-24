@@ -104,7 +104,9 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
       `internal/config.FromFlags` called `os.Exit`. Now the profiles are
       validated at boot and the configuration is reported as an error.
       (S2)
-      Still open: the "no api key -> Ollama" heuristic surprises.
+      Still open: nothing. The endpoint of the default profile is the
+      configured `api_base`; the api key is a credential and never selects
+      an endpoint, so there is no heuristic left to surprise anyone.
 - [ ] **`exec-command-v1` hardening.** Per-job workspace instead of the
       shared `exec_root`, minimal env. (S2)
       **Done**: the shell reads no profile file, so the environment of a

@@ -7,10 +7,10 @@ import (
 )
 
 func modelProfiles(cfg *config.Config) (map[string]llm.Profile, error) {
+	// The endpoint of the default profile is the configured one. The key is
+	// a credential: a local endpoint which needs none must not be replaced
+	// by another one behind the operator's back.
 	base := cfg.APIBase
-	if cfg.APIKey == "" {
-		base = cfg.OllamaBase
-	}
 	profiles := make(map[string]llm.Profile, len(cfg.ModelProfiles)+1)
 	for name, profile := range cfg.ModelProfiles {
 		profiles[name] = profile

@@ -116,8 +116,10 @@ limits, delivery semantics, and how to add a worker.
 
 ## Quick start
 
-Requires Go (version in `go.mod`), Docker with Compose, and either a local
-Ollama or an OpenAI-compatible API key.
+Requires Go (version in `go.mod`), Docker with Compose, and an
+OpenAI-compatible endpoint: a local Ollama or vLLM, or OpenAI with an API
+key. `api_base` in `config.yaml` names it; `api_key` is the credential for
+it, and never selects another endpoint.
 
 ```sh
 git clone git@github.com:triskill/tret.git && cd tret

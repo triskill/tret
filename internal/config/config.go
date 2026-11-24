@@ -37,9 +37,10 @@ type Config struct {
 	ExecWorkspace string `json:"exec_workspace" yaml:"exec_workspace"`
 	Model         string `json:"model" yaml:"model"`
 	APIKey        string `json:"api_key" yaml:"api_key"`
-	APIBase       string `json:"api_base" yaml:"api_base"`
-	// OllamaBase is used for the default profile when no API key is set.
-	OllamaBase string `json:"ollama_base" yaml:"ollama_base"`
+	// APIBase is the OpenAI-compatible endpoint the workers call: a local
+	// Ollama or vLLM, or OpenAI. It is the endpoint and nothing else
+	// decides it: the API key is a credential, not a choice of endpoint.
+	APIBase string `json:"api_base" yaml:"api_base"`
 	// LockDuration is how long the engine reserves a delivered job for this
 	// worker. It must outlast the longest job the worker runs, or the engine
 	// hands the job to a second worker while the first is still busy.
@@ -71,7 +72,6 @@ func defaults() *Config {
 		ExecWorkspace: "shared",
 		Model:         "gpt-4o-mini",
 		APIBase:       "https://api.openai.com/v1",
-		OllamaBase:    "http://localhost:11434/v1",
 		LockDuration:  Duration(worker.DefaultLockDuration),
 		JournalLease:  Duration(journal.DefaultLease),
 		LogLevel:      "info",
@@ -141,7 +141,6 @@ func fromFlags(mode string, args []string) (*Config, error) {
 		model         = cfg.Model
 		apiKey        = cfg.APIKey
 		apiBase       = cfg.APIBase
-		ollamaBase    = cfg.OllamaBase
 		lockDuration  = time.Duration(cfg.LockDuration)
 		maxActiveJobs = cfg.MaxActiveJobs
 		clientID      = cfg.ClientID
@@ -165,7 +164,6 @@ func fromFlags(mode string, args []string) (*Config, error) {
 	fs.StringVar(&model, "model", model, "model")
 	fs.StringVar(&apiKey, "api-key", apiKey, "api key")
 	fs.StringVar(&apiBase, "api-base", apiBase, "OpenAI-compatible API base URL")
-	fs.StringVar(&ollamaBase, "ollama-base", ollamaBase, "Ollama API base URL")
 	fs.DurationVar(&lockDuration, "lock-duration", lockDuration, "how long the engine reserves a delivered job for this worker")
 	journalHelp := "directory the journal of the finished steps lives in (empty: off)"
 	if chat {
@@ -212,9 +210,6 @@ func fromFlags(mode string, args []string) (*Config, error) {
 	}
 	if explicit["api-base"] {
 		cfg.APIBase = apiBase
-	}
-	if explicit["ollama-base"] {
-		cfg.OllamaBase = ollamaBase
 	}
 	if explicit["lock-duration"] {
 		cfg.LockDuration = Duration(lockDuration)

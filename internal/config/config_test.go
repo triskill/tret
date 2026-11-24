@@ -27,7 +27,7 @@ func TestFromFlagsOverrides(t *testing.T) {
 		"--engine-rest", "http://engine:8080", "--engine-grpc=engine:9090",
 		"--exec-root", "./worker-dir", "--workers", "llm-call-v1",
 		"--model", "test-model", "--api-key", "test-key",
-		"--api-base", "http://api/v1", "--ollama-base", "http://ollama/v1",
+		"--api-base", "http://api/v1",
 		"--lock-duration", "7m", "--max-active-jobs", "3", "--client-id", "worker-a",
 	}
 	want := defaults()
@@ -38,7 +38,6 @@ func TestFromFlagsOverrides(t *testing.T) {
 	want.Model = "test-model"
 	want.APIKey = "test-key"
 	want.APIBase = "http://api/v1"
-	want.OllamaBase = "http://ollama/v1"
 	want.LockDuration = Duration(7 * time.Minute)
 	want.MaxActiveJobs = 3
 	want.ClientID = "worker-a"
@@ -128,6 +127,22 @@ func TestUnknownConfigKeyIsAnError(t *testing.T) {
 	}
 	if _, err := FromFlags([]string{"-config", path}); err == nil {
 		t.Fatal("an unknown key was accepted")
+	}
+}
+
+// The endpoint of a worker is the configured one: there is one key for it.
+// The old ollama_base key, which the presence of an api key decided
+// between, is gone.
+func TestTheSecondEndpointKeyIsGone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("ollama_base: http://localhost:11434/v1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FromFlags([]string{"-config", path}); err == nil {
+		t.Fatal("the removed ollama_base key was accepted")
+	}
+	if _, err := FromFlags([]string{"-ollama-base", "http://localhost:11434/v1"}); err == nil {
+		t.Fatal("the removed ollama-base flag was accepted")
 	}
 }
 

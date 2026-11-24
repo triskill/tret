@@ -33,7 +33,7 @@ func TestFromChatFlagsHelp(t *testing.T) {
 		t.Fatal(err)
 	}
 	help := string(b)
-	for _, want := range []string{"Usage of chat:", `default ".tret/journal"`, "-config ", "-engine-rest ", "-engine-grpc ", "-model ", "-api-key ", "-api-base ", "-ollama-base ", "-lock-duration ", "-journal-dir ", "-journal-lease "} {
+	for _, want := range []string{"Usage of chat:", `default ".tret/journal"`, "-config ", "-engine-rest ", "-engine-grpc ", "-model ", "-api-key ", "-api-base ", "-lock-duration ", "-journal-dir ", "-journal-lease "} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help missing %q:\n%s", want, help)
 		}
