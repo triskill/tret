@@ -2,6 +2,7 @@
 data/
 state/
 session.json
+.tret/
 
 # local config with real credentials
 config.yaml

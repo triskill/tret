@@ -21,6 +21,8 @@ import (
 // is named.
 const defaultConfigFile = "config.yaml"
 
+const defaultChatJournalDir = ".tret/journal"
+
 type Config struct {
 	Workers string `json:"workers" yaml:"workers"`
 	// ModelProfiles are server-owned endpoints/credentials, never process variables.
@@ -111,7 +113,21 @@ func loadFile(path string, cfg *Config) error {
 // the flags, in that order of precedence. It reports an error instead of
 // exiting, so the caller decides what to do with a bad configuration.
 func FromFlags(args []string) (*Config, error) {
+	return fromFlags("server", args)
+}
+
+// FromChatFlags builds the chat configuration from the same config file as
+// FromFlags, but accepts only flags used by chat.
+func FromChatFlags(args []string) (*Config, error) {
+	return fromFlags("chat", args)
+}
+
+func fromFlags(mode string, args []string) (*Config, error) {
 	cfg := defaults()
+	chat := mode == "chat"
+	if chat {
+		cfg.JournalDir = defaultChatJournalDir
+	}
 
 	// The flag values are kept apart from the configuration, so a config
 	// file cannot overwrite a flag the operator gave.
@@ -134,23 +150,29 @@ func FromFlags(args []string) (*Config, error) {
 		logLevel      = cfg.LogLevel
 	)
 
-	fs := flag.NewFlagSet("server", flag.ContinueOnError)
-	fs.StringVar(&workers, "workers", workers, "comma-separated built-in job types to serve")
+	fs := flag.NewFlagSet(mode, flag.ContinueOnError)
+	if !chat {
+		fs.StringVar(&workers, "workers", workers, "comma-separated built-in job types to serve")
+		fs.StringVar(&execRoot, "exec-root", execRoot, "workspace directory for exec-command-v1 jobs")
+		fs.StringVar(&execWorkspace, "exec-workspace", execWorkspace, "how the instances share the exec root: shared or instance")
+		fs.IntVar(&maxActiveJobs, "max-active-jobs", maxActiveJobs, "jobs of one type this worker holds at once (0: engine default)")
+		fs.StringVar(&clientID, "client-id", clientID, "name of this worker at the engine (default: host and pid)")
+		fs.StringVar(&logLevel, "log-level", logLevel, "lowest level the server logs: debug, info, warn or error")
+	}
 	fs.StringVar(&configFile, "config", "", "config file (json/yaml)")
 	fs.StringVar(&engineREST, "engine-rest", engineREST, "engine REST URL")
 	fs.StringVar(&engineGRPC, "engine-grpc", engineGRPC, "engine gRPC URL")
-	fs.StringVar(&execRoot, "exec-root", execRoot, "workspace directory for exec-command-v1 jobs")
-	fs.StringVar(&execWorkspace, "exec-workspace", execWorkspace, "how the instances share the exec root: shared or instance")
 	fs.StringVar(&model, "model", model, "model")
 	fs.StringVar(&apiKey, "api-key", apiKey, "api key")
 	fs.StringVar(&apiBase, "api-base", apiBase, "OpenAI-compatible API base URL")
 	fs.StringVar(&ollamaBase, "ollama-base", ollamaBase, "Ollama API base URL")
 	fs.DurationVar(&lockDuration, "lock-duration", lockDuration, "how long the engine reserves a delivered job for this worker")
-	fs.IntVar(&maxActiveJobs, "max-active-jobs", maxActiveJobs, "jobs of one type this worker holds at once (0: engine default)")
-	fs.StringVar(&clientID, "client-id", clientID, "name of this worker at the engine (default: host and pid)")
-	fs.StringVar(&journalDir, "journal-dir", journalDir, "directory the journal of the finished steps lives in (empty: off)")
+	journalHelp := "directory the journal of the finished steps lives in (empty: off)"
+	if chat {
+		journalHelp = "directory for the chat journal (empty: use default)"
+	}
+	fs.StringVar(&journalDir, "journal-dir", journalDir, journalHelp)
 	fs.DurationVar(&journalLease, "journal-lease", journalLease, "how long a claim on a step lasts")
-	fs.StringVar(&logLevel, "log-level", logLevel, "lowest level the server logs: debug, info, warn or error")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -211,6 +233,9 @@ func FromFlags(args []string) (*Config, error) {
 	}
 	if explicit["log-level"] {
 		cfg.LogLevel = logLevel
+	}
+	if chat && cfg.JournalDir == "" {
+		cfg.JournalDir = defaultChatJournalDir
 	}
 	return cfg, nil
 }

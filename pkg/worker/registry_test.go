@@ -94,6 +94,10 @@ func TestRegistryDrainWaitsForRunningJobs(t *testing.T) {
 		r.Handle(context.Background(), &proto.WaitingJob{Type: &typ})
 	}()
 	<-started
+	r.StopAccepting()
+	if _, err := r.Handle(context.Background(), &proto.WaitingJob{Type: &typ}); err == nil {
+		t.Error("accepted a late delivery while the admitted job was still running")
+	}
 	drained := make(chan error, 1)
 	go func() { drained <- r.Drain(context.Background()) }()
 	select {
@@ -109,6 +113,23 @@ func TestRegistryDrainWaitsForRunningJobs(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("drain did not return")
+	}
+}
+
+func TestRegistryDrainStopsIntake(t *testing.T) {
+	r := NewRegistry()
+	typ := "example-v1"
+	if err := r.Register(Spec{JobType: typ}, func(context.Context, *proto.WaitingJob) (map[string]any, *zenclient.WorkerError) {
+		t.Error("handler ran for a delivery after shutdown began")
+		return nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Handle(context.Background(), &proto.WaitingJob{Type: &typ}); err == nil {
+		t.Error("accepted a delivery after drain")
 	}
 }
 

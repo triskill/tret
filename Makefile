@@ -2,7 +2,7 @@ ENGINE ?= http://localhost:8080
 CONFIG ?= config.example.yaml
 BPMN ?=
 
-.PHONY: up down build test run run-server deploy
+.PHONY: up down build install test run run-server deploy
 
 up:
 	docker compose up -d
@@ -12,6 +12,9 @@ down:
 
 build:
 	go build ./...
+
+install:
+	go install ./cmd/tret
 
 test:
 	go test ./...

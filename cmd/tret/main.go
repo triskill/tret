@@ -1,6 +1,5 @@
-// Command tret hosts the platform's generic BPMN job workers and
-// deploys/starts processes. There is no embedded process: every loop lives in
-// a BPMN file the operator deploys.
+// Command tret starts a terminal chat backed by a BPMN agent loop, hosts
+// generic workers, and deploys or starts other BPMN processes.
 package main
 
 import (
@@ -15,7 +14,8 @@ Usage:
   tret server [flags]   host generic workers (llm-call-v1, exec-command-v1)
   tret deploy [flags]   deploy a BPMN file and print its definition key
   tret start [flags]    start a process and print its instance key
-  tret [flags]          same as 'tret server [flags]'
+  tret [flags]          chat in the current directory (engine must be running)
+  tret chat [flags]     same as 'tret [flags]'
 
 New loops are BPMN files deployed to the engine; add capabilities by
 registering your own job workers (see docs/workers.md).
@@ -27,6 +27,9 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
 		switch args[0] {
+		case "chat":
+			runChat(args[1:])
+			return
 		case "server":
 			runServer(args[1:])
 			return
@@ -46,5 +49,5 @@ func main() {
 			os.Exit(2)
 		}
 	}
-	runServer(args)
+	runChat(args)
 }

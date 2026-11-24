@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zenbpm="http://zenbpm.pbinitiative.org/1.0" id="ChatDefinitions" targetNamespace="http://tret/chat">
+ <bpmn:process id="tret_chat" name="Interactive chat" isExecutable="true">
+  <bpmn:startEvent id="Start" name="Start">
+   <bpmn:outgoing>ToInput</bpmn:outgoing>
+  </bpmn:startEvent>
+  <bpmn:userTask id="Input" name="Input">
+   <bpmn:extensionElements><zenbpm:taskDefinition type="tret-chat-input" retries="1" />
+    <zenbpm:ioMapping>
+     <zenbpm:output source="=request" target="request" />
+     <zenbpm:output source="=quit" target="quit" />
+     <zenbpm:output source="=turn" target="turn" />
+    </zenbpm:ioMapping>
+   </bpmn:extensionElements>
+   <bpmn:incoming>ToInput</bpmn:incoming>
+   <bpmn:outgoing>InputDone</bpmn:outgoing>
+   <bpmn:incoming>Answer</bpmn:incoming>
+  </bpmn:userTask>
+  <bpmn:exclusiveGateway id="Quit" name="Quit">
+   <bpmn:incoming>InputDone</bpmn:incoming>
+   <bpmn:outgoing>Exit</bpmn:outgoing>
+   <bpmn:outgoing>Ask</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:serviceTask id="Model" name="Model">
+   <bpmn:extensionElements><zenbpm:taskDefinition type="llm-call-v1" retries="1" />
+    <zenbpm:ioMapping>
+     <zenbpm:input source="=request" target="llm_request" />
+     <zenbpm:output source="=llm_result" target="response" />
+     <zenbpm:output source="=turn + 1" target="turn" />
+    </zenbpm:ioMapping>
+   </bpmn:extensionElements>
+   <bpmn:incoming>Ask</bpmn:incoming>
+   <bpmn:outgoing>Modeled</bpmn:outgoing>
+   <bpmn:incoming>No</bpmn:incoming>
+   <bpmn:incoming>Observed</bpmn:incoming>
+  </bpmn:serviceTask>
+  <bpmn:exclusiveGateway id="Route" name="Route">
+   <bpmn:incoming>Modeled</bpmn:incoming>
+   <bpmn:outgoing>Answer</bpmn:outgoing>
+   <bpmn:outgoing>Shell</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:userTask id="Approve" name="Approve">
+   <bpmn:extensionElements><zenbpm:taskDefinition type="tret-chat-approve" retries="1" />
+    <zenbpm:ioMapping>
+     <zenbpm:output source="=approved" target="approved" />
+     <zenbpm:output source="=request" target="request" />
+    </zenbpm:ioMapping>
+   </bpmn:extensionElements>
+   <bpmn:incoming>Shell</bpmn:incoming>
+   <bpmn:outgoing>ApprovalDone</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:exclusiveGateway id="Approved" name="Approved">
+   <bpmn:incoming>ApprovalDone</bpmn:incoming>
+   <bpmn:outgoing>Yes</bpmn:outgoing>
+   <bpmn:outgoing>No</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:serviceTask id="Exec" name="Exec">
+   <bpmn:extensionElements><zenbpm:taskDefinition type="exec-command-v1" retries="1" />
+    <zenbpm:ioMapping>
+     <zenbpm:input source="={ command: response.structured_output.command, timeout_sec: 60 }" target="exec_request" />
+     <zenbpm:output source="=exec_result" target="execution" />
+    </zenbpm:ioMapping>
+   </bpmn:extensionElements>
+   <bpmn:incoming>Yes</bpmn:incoming>
+   <bpmn:outgoing>Executed</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:userTask id="Observe" name="Observe">
+   <bpmn:extensionElements><zenbpm:taskDefinition type="tret-chat-observe" retries="1" />
+    <zenbpm:ioMapping>
+     <zenbpm:output source="=request" target="request" />
+    </zenbpm:ioMapping>
+   </bpmn:extensionElements>
+   <bpmn:incoming>Executed</bpmn:incoming>
+   <bpmn:outgoing>Observed</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:endEvent id="End" name="End">
+   <bpmn:incoming>Exit</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:sequenceFlow id="ToInput" sourceRef="Start" targetRef="Input"></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="InputDone" sourceRef="Input" targetRef="Quit"></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Exit" sourceRef="Quit" targetRef="End"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=quit = true</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Ask" sourceRef="Quit" targetRef="Model"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=quit = false</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Modeled" sourceRef="Model" targetRef="Route"></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Answer" sourceRef="Route" targetRef="Input"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=response.structured_output.action = "answer" or turn &gt;= max_turns</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Shell" sourceRef="Route" targetRef="Approve"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=response.structured_output.action = "shell" and turn &lt; max_turns</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="ApprovalDone" sourceRef="Approve" targetRef="Approved"></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Yes" sourceRef="Approved" targetRef="Exec"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=approved = true</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="No" sourceRef="Approved" targetRef="Model"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=approved = false</bpmn:conditionExpression></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Executed" sourceRef="Exec" targetRef="Observe"></bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="Observed" sourceRef="Observe" targetRef="Model"></bpmn:sequenceFlow>
+ </bpmn:process>
+ <bpmndi:BPMNDiagram id="ChatDiagram"><bpmndi:BPMNPlane id="ChatPlane" bpmnElement="tret_chat">
+  <bpmndi:BPMNShape id="Start_di" bpmnElement="Start"><dc:Bounds x="40" y="140" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Input_di" bpmnElement="Input"><dc:Bounds x="120" y="118" width="100" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Quit_di" bpmnElement="Quit"><dc:Bounds x="260" y="133" width="50" height="50" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Model_di" bpmnElement="Model"><dc:Bounds x="360" y="118" width="100" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Route_di" bpmnElement="Route"><dc:Bounds x="500" y="133" width="50" height="50" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Approve_di" bpmnElement="Approve"><dc:Bounds x="600" y="118" width="100" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Approved_di" bpmnElement="Approved"><dc:Bounds x="740" y="133" width="50" height="50" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Exec_di" bpmnElement="Exec"><dc:Bounds x="840" y="118" width="100" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="Observe_di" bpmnElement="Observe"><dc:Bounds x="1000" y="118" width="100" height="80" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="End_di" bpmnElement="End"><dc:Bounds x="270" y="300" width="36" height="36" /></bpmndi:BPMNShape>
+  <bpmndi:BPMNEdge id="ToInput_di" bpmnElement="ToInput"><di:waypoint x="76" y="158" /><di:waypoint x="120" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="InputDone_di" bpmnElement="InputDone"><di:waypoint x="220" y="158" /><di:waypoint x="260" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Exit_di" bpmnElement="Exit"><di:waypoint x="310" y="158" /><di:waypoint x="270" y="318" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Ask_di" bpmnElement="Ask"><di:waypoint x="310" y="158" /><di:waypoint x="360" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Modeled_di" bpmnElement="Modeled"><di:waypoint x="460" y="158" /><di:waypoint x="500" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Answer_di" bpmnElement="Answer"><di:waypoint x="550" y="158" /><di:waypoint x="120" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Shell_di" bpmnElement="Shell"><di:waypoint x="550" y="158" /><di:waypoint x="600" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="ApprovalDone_di" bpmnElement="ApprovalDone"><di:waypoint x="700" y="158" /><di:waypoint x="740" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Yes_di" bpmnElement="Yes"><di:waypoint x="790" y="158" /><di:waypoint x="840" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="No_di" bpmnElement="No"><di:waypoint x="790" y="158" /><di:waypoint x="360" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Executed_di" bpmnElement="Executed"><di:waypoint x="940" y="158" /><di:waypoint x="1000" y="158" /></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="Observed_di" bpmnElement="Observed"><di:waypoint x="1100" y="158" /><di:waypoint x="360" y="158" /></bpmndi:BPMNEdge>
+ </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>

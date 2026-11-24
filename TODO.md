@@ -29,8 +29,9 @@ This file is the *actionable* list. Everything else lives in those two.
   `outputLimit`), per-job timeout, TERM->KILL.
 - Live integration tests gated on `TRET_INTEGRATION=1`
   (`internal/integration/toolkit_test.go`); green against ZenBPM v1.9.0.
-- No server-side agent/budget/state code remains in `cmd/`, `pkg/`,
-  `internal/` (grepped).
+- `tret` now starts a minimal local chat backed by `internal/chatflow/chat.bpmn`;
+  `tret server` remains the generic worker host. BPMN owns routing and the
+  eight-model-call per-message limit. Terminal code handles I/O and approval.
 - Measured against the live engine (2026-11-20), recorded in the review:
   default job lock 30 s; engine default `retries` 1; `retries` is *not*
   consulted when a worker failure carries an error code; the whole process
@@ -50,7 +51,12 @@ This file is the *actionable* list. Everything else lives in those two.
 - Code review with live-engine evidence (`docs/mistakesToFix.md`) and a
   phased architecture plan (`docs/futurePlans.md`).
 
-## Open — Phase 0: correctness (blocking everything else)
+## Open — Phase 0: correctness
+
+The local reference chat is intentionally a small trusted-user exception to
+completing all later platform phases first. It does not add a sandbox, durable
+session resume, artifact storage, or a monetary spend guard.
+
 
 Do these before any new capability, any scaling work, and any agent-loop
 example. Each item cites its finding in `docs/mistakesToFix.md`.
@@ -190,14 +196,14 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
 
 ## Open — reference agent loop
 
-- [ ] **`examples/agent-loop/`**: a deployable BPMN using only `llm-call-v1`,
-      `exec-command-v1` and a `userTask`. Old loop for reference:
-      `git show HEAD~1:bpmn/agent_loop.bpmn` (+ its integration test, which
-      also holds the `awaitCompleted` polling pattern to reuse). Translate
-      `agent-execute` to `exec_request`; counters become process variables
-      (verified mechanism: an output mapping, see Phase 2). Needs a live
-      integration test mirroring `toolkit_test.go`. First run `make up` and a
-      real engine; do not verify against mocks only.
+- [x] **Minimal terminal chat**: `tret` / `tret chat` in the working directory.
+      Embedded `internal/chatflow/chat.bpmn` uses LLM, shell and human tasks;
+      all shell commands need approval. BPMN routes the loop and caps each
+      message at eight model calls. Session-specific subscriptions prevent
+      cross-workspace delivery. `internal/chat` handles terminal I/O. A bounded
+      transcript is carried in process variables for this small first version;
+      external transcripts/artifacts and session resume remain open.
+- [ ] Resume chat sessions and store transcripts outside process variables.
 - [ ] **BPMN authoring guide**: the recipes (counter, loop-back, error
       boundary, tool routing) with copy-pasteable snippets and the engine
       idioms (FEEL, DMN, timer events, multi-instance).

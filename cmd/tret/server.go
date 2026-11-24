@@ -42,24 +42,10 @@ func runServer(args []string) {
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 
-	// One OpenAI-compatible endpoint set serves the default profile: api_key
-	// set -> api_base (OpenAI/OpenRouter/...); empty -> local Ollama /v1.
-	base := cfg.APIBase
-	if cfg.APIKey == "" {
-		base = cfg.OllamaBase
-	}
-	profiles := make(map[string]llm.Profile, len(cfg.ModelProfiles)+1)
-	for name, profile := range cfg.ModelProfiles {
-		profiles[name] = profile
-	}
-	if _, ok := profiles["default"]; !ok {
-		profiles["default"] = llm.Profile{BaseURL: base, Model: cfg.Model, APIKey: cfg.APIKey}
-	}
-	for name, profile := range profiles {
-		if err := profile.Validate(); err != nil {
-			fmt.Fprintf(os.Stderr, "model profile %q is unusable: %v\n", name, err)
-			os.Exit(1)
-		}
+	profiles, err := modelProfiles(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

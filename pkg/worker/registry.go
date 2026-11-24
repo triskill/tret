@@ -48,10 +48,13 @@ type Spec struct {
 	MaxRuntime time.Duration
 }
 
-// Registry is configured before registration and is read-only while serving jobs.
+// Registry is configured before serving jobs and can be shut down with Drain.
 type Registry struct {
 	handlers map[string]zenclient.WorkerFunc
 	specs    map[string]Spec
+
+	intake   sync.Mutex
+	draining bool
 	inflight sync.WaitGroup
 }
 
@@ -118,7 +121,13 @@ func (r *Registry) Options() []zenclient.WorkerOption {
 func (r *Registry) Handle(ctx context.Context, job *proto.WaitingJob) (map[string]any, *zenclient.WorkerError) {
 	if job != nil {
 		if handler, ok := r.handlers[job.GetType()]; ok {
+			r.intake.Lock()
+			if r.draining {
+				r.intake.Unlock()
+				return nil, &zenclient.WorkerError{Err: fmt.Errorf("worker is shutting down")}
+			}
 			r.inflight.Add(1)
+			r.intake.Unlock()
 			defer r.inflight.Done()
 			return r.run(ctx, job, handler)
 		}
@@ -148,11 +157,17 @@ func (r *Registry) run(ctx context.Context, job *proto.WaitingJob, handler zencl
 	return result, nil
 }
 
-// Drain waits until no job is in flight, or until ctx is done. A server
-// which stops accepting jobs and then drains does not cut a running side
-// effect short; the engine redelivers the job if the worker dies before it
-// reports the result.
+// StopAccepting closes intake without waiting for admitted handlers.
+func (r *Registry) StopAccepting() {
+	r.intake.Lock()
+	r.draining = true
+	r.intake.Unlock()
+}
+
+// Drain closes intake and waits until all admitted handlers return or ctx is
+// done. Callers should stop engine subscriptions before draining.
 func (r *Registry) Drain(ctx context.Context) error {
+	r.StopAccepting()
 	done := make(chan struct{})
 	go func() {
 		r.inflight.Wait()

@@ -9,6 +9,50 @@ completions and shell commands — that any process can reference. A new loop is
 just a BPMN file: create or edit it, deploy it, done. No new Go code until you
 need a genuinely new capability.
 
+## Terminal chat
+
+Install the command once, start the engine, then run `tret` in your project:
+
+```sh
+make install                         # installs into $(go env GOPATH)/bin
+make up                              # run from this repository
+# Ensure $(go env GOPATH)/bin is on PATH.
+cd /path/to/your/project
+tret -config /absolute/path/to/config.yaml
+```
+
+With a `config.yaml` in the current directory, just run **`tret`**. Use
+`tret chat` for the same command. Configure the model as in
+`config.example.yaml`; it must support OpenAI-compatible JSON schema output.
+The engine must already be running; chat does not start Docker automatically.
+Use a trusted local engine: anyone with engine access can inspect prompts,
+complete approval jobs, or start the deployed process. Approval is a terminal
+interaction, not an engine authorization boundary. The bundled Compose setup
+publishes the engine and UI on loopback only.
+
+Chat deploys an embedded [BPMN loop](internal/chatflow/chat.bpmn) and hosts
+its workers for that session. The model proposes one shell command or a final
+answer. Commands are shown as quoted strings so newlines and control
+characters are visible. Enter `y` or `yes` to approve (case-insensitive), or
+press Enter to decline. Commands run in the **current directory**, regardless
+of `exec_root` or `exec_workspace` in the server config. They can read and change files with
+**your permissions: there is no sandbox**. Inspect commands before approving.
+The shell has a minimal environment; use explicit paths for project virtual
+environments or tools outside its PATH.
+
+BPMN owns routing and limits each user message to **eight model calls**.
+`/exit` or EOF ends the session. Ctrl-C cancels the process, but an already
+approved command may finish while chat waits to record its outcome. Command
+results are journaled in `.tret/journal` by default (`journal_dir` overrides
+it); do not remove active journal files. Session-specific worker types prevent
+other running servers from executing chat commands in another workspace.
+
+This is a small local testing assistant, not an unattended or resumable agent.
+The transcript is bounded to 128 KiB and copied through process variables;
+large transcripts/artifact storage remain open work. The engine retains
+process records, including prompts and command output: do not send secrets.
+No new Go code is needed to inspect or edit the loop itself.
+
 ## How a loop works
 
 ```
@@ -16,11 +60,12 @@ need a genuinely new capability.
                                        │ gRPC jobs (jobType per task)
                                        ▼
  tret server ── llm-call-v1 ──▶ OpenAI-compatible endpoint
-              ── exec-command-v1 ─▶ bash -lc in the server's exec root
+              ── exec-command-v1 ─▶ shell in the server's exec root
  app worker (your code) ──▶ anything else your process references
 ```
 
-- **`tret server`** (the default subcommand) registers the selected generic
+- **`tret`** starts terminal chat with an embedded reference BPMN loop.
+- **`tret server`** registers the selected generic
   workers over gRPC and streams jobs. It deploys nothing itself.
 - **`tret deploy -file process.bpmn`** prints the definition key.
 - **`tret start -process KEY_OR_ID -variables vars.json`** starts an instance.
@@ -40,7 +85,7 @@ BPMN file (gateways and process variables), not in trev code. Human
 travel in process variables. No hidden loop, no conversation state, no tool
 execution inside the worker.
 
-`exec-command-v1` runs one `bash -lc` command per job in the configured
+`exec-command-v1` runs one `bash --noprofile --norc -c` command per job in the configured
 `exec_root` with capped output and a bounded timeout. Exit codes and timeouts
 are ordinary results for the process to route on; this is a tool, not a
 sandbox, and jobs are at-least-once — see the contract docs.
@@ -100,11 +145,9 @@ limits and the delivery semantics are documented in
 repeat its result exists, but its store keeps its records on one node; a
 store several nodes can reach is open. Output spill — routing large exec
 output and long model content out of the process variables — is open, as are
-per-process variable budgets and the reference agent loop (see
-[TODO.md](TODO.md)). The former bundled `agent_loop` process, its
-`agent-*` workers, transcript store, and interactive `tret agent` CLI were
-removed (see git history); rebuild such loops as plain BPMN plus these generic
-workers.
+per-process variable budgets and resumable chat (see [TODO.md](TODO.md)). The old `agent_loop` process and `agent-*` workers were removed (see git
+history). The new minimal terminal chat uses an embedded plain BPMN loop plus
+the generic workers; resumable transcripts and richer tool support remain open.
 
 The code review of the current state, with the findings and their evidence,
 is in [docs/mistakesToFix.md](docs/mistakesToFix.md); the plan for the
