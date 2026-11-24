@@ -69,8 +69,8 @@ the failures are split into transient and terminal ones (so the `retries` of a
 task definition work again), and the journal of the finished steps exists
 (`pkg/journal`, keyed on the engine job key, with a file store for one node).
 Still open: a store several nodes can reach, the fencing of effects which
-cannot be keyed, the renewal of the lock with `ExtendDeliveryLock`, and the
-sandbox for the exec worker.
+cannot be keyed, and the sandbox for the exec worker. The renewal of the
+lock with `ExtendDeliveryLock` is done (`pkg/worker.Registry`).
 
 ### 2.1 Execution identity and the idempotency journal
 
@@ -155,7 +155,8 @@ side effect" into "slightly late result".
 * One registration helper that always sets a lock duration.
 * Lock duration derived from the worker's declared worst-case runtime, not a
   constant.
-* `ExtendDeliveryLock` renewal for work that may run long.
+* `ExtendDeliveryLock` renewal for work that may run long. **Done**: the
+  registry renews the lock of a delivered job while it runs.
 * Startup validation: `lock_duration > worst_case_runtime` or the server
   refuses to start.
 
@@ -320,7 +321,7 @@ model**. What is missing is everything around it.
 | no idempotency | a redelivery to another replica re-executes the effect | journal (Phase 0) |
 | shared `exec_root` | jobs of different replicas share one directory; results are not reproducible | per-job workspace in a shared artifact store, or a container per job |
 | transcript in process variables | O(n²) storage; the instance cannot be moved or resumed elsewhere | transcript store (Phase 1) |
-| lock duration fixed at 5 min, never renewed | a slow job is delivered to a second replica while the first still runs | lock policy + renewal (Phase 0) |
+| lock duration fixed at 5 min | a slow job is delivered to a second replica while the first still runs | lock policy + renewal (Phase 0: the renewal is done, the policy is a config value) |
 | credentials in a local config file | every replica needs the same secrets; rotation is a redeploy | secret store / mounted secrets + rotation |
 | no backpressure | the engine default is 10 active jobs per subscription; one replica saturates long before the cluster does | explicit `WithMaxActiveJobs`, configurable per profile |
 | no health/readiness | an orchestrator cannot tell a broken replica from an idle one | `/healthz`, `/readyz`, `tret doctor` |

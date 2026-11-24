@@ -29,6 +29,10 @@ This file is the *actionable* list. Everything else lives in those two.
   `outputLimit`), per-job timeout, TERM->KILL.
 - Live integration tests gated on `TRET_INTEGRATION=1`
   (`internal/integration/toolkit_test.go`); green against ZenBPM v1.9.0.
+- The lock of a delivered job is renewed while the job runs
+  (`pkg/worker.Registry`), so a job which outruns its declared runtime is
+  not handed to a second worker; measured against the live engine in
+  `internal/integration/renew_test.go`.
 - `tret` now starts a minimal local chat backed by `internal/chatflow/chat.bpmn`;
   `tret server` remains the generic worker host. BPMN owns routing and the
   eight-model-call per-message limit. Terminal code handles I/O and approval.
@@ -74,7 +78,10 @@ example. Each item cites its finding in `docs/mistakesToFix.md`.
       **Done**: `pkg/worker.Spec` refuses a lock which does not outlast the
       declared runtime, `worker.Subscribe` is the safe path, the server
       validates the configured lock. The renewal with `ExtendDeliveryLock`
-      is still open.
+      is done as well: `pkg/worker.Registry` renews the lock of a delivered
+      job while it runs, using the deadline the engine reports
+      (`WaitingJob.LockUntil`), so a job which outruns its declared runtime
+      is not handed to a second worker.
 - [x] **Idempotency journal** keyed on the **engine job key** (never on
       attempt or delivery token — the engine docs say so explicitly). Look up
       → claim → execute → store the result; a redelivery returns the

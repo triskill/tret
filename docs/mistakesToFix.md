@@ -68,8 +68,26 @@ idempotency journal below, otherwise the detached work makes the duplication
 **Fixed** (commit `5063e9e`): `pkg/worker.Spec` refuses a subscription whose
 lock does not outlast the declared runtime, `worker.Subscribe` is the safe
 path for third-party workers, and the server validates the configured lock
-against the runtime of the workers it serves. The renewal of the lock with
-`ExtendDeliveryLock` is still open.
+against the runtime of the workers it serves.
+
+**The renewal is fixed as well** (commit `7d25eb5`): `pkg/worker.Registry`
+renews the lock of a delivered job while the job runs
+(`zenclient.Worker.ExtendDeliveryLock`), and `worker.Subscribe` renews it
+for third-party workers too. The renewal follows the deadline the engine
+reports (`WaitingJob.LockUntil`) when the clocks of the worker and of the
+partition leader agree, and counts the lock duration from the moment of
+receipt when they do not. The renewal outlives the job stream: the engine
+cancels the context of a delivery when the stream breaks, and the side
+effect may well be running on.
+
+**[measured]** The renewal against the live engine (a job of 30 s, a lock of
+10 s, `internal/integration/renew_test.go`):
+
+```
+without the renewal: the side effect ran 3 times — the engine handed the
+                      job out again every time the lock lapsed
+with the renewal:    the side effect ran once
+```
 
 The engine's default lock duration is **30 s**
 (`internal/config/config.go:177` `DefaultLockDurationMs: 30000`).
@@ -112,10 +130,9 @@ deliveries ran the side effect.
 2. Make the lock duration a per-worker-type config value and **validate it at
    startup** against the worker's maximum runtime.
 3. Renew the lock while the work runs (`zenclient.Worker.ExtendDeliveryLock`),
-   so the guarantee does not depend on a static guess. The zenclient exposes
-   it; `tret` never calls it.
+   so the guarantee does not depend on a static guess. **Done.**
 4. The engine tells the worker the deadline (`WaitingJob.LockUntil`); use it
-   instead of assuming.
+   instead of assuming. **Done.**
 
 ---
 

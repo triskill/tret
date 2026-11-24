@@ -142,8 +142,17 @@ The engine reserves a delivered job for a worker until the lock lapses, then
 hands it out again. A worker whose lock is shorter than its job therefore sees
 its job several times, running at the same time. Subscribe with a lock longer
 than the longest run of the handler — `pkg/worker` refuses a subscription
-whose lock does not outlast the declared runtime — and renew it with
-`ExtendDeliveryLock` for work that may run long.
+whose lock does not outlast the declared runtime.
+
+The lock is renewed while the job runs: `pkg/worker.Registry` calls
+`ExtendDeliveryLock` for the delivery it is working on, and `worker.Subscribe`
+does the same for third-party workers. A job which outruns its declared
+runtime therefore keeps its lock instead of being handed to a second worker,
+and its side effect happens once. The renewal follows the deadline the engine
+reports (`WaitingJob.LockUntil`) when the clocks agree, and counts the lock
+duration from the moment of receipt when they do not. It outlives the job
+stream: the engine cancels the context of a delivery when the stream breaks,
+and the side effect may well be running on.
 
 A job which the engine hands out again after a broken stream is *the same
 step*. Key every side effect on the engine job key (`WaitingJob.Key`), not on
